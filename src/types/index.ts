@@ -28,6 +28,8 @@ export interface Task {
   detail?: string
   reflection?: string
   artifact?: string
+  actualMinutes?: number
+  difficulty?: Difficulty
 }
 
 export interface DailyPlan {
@@ -39,6 +41,8 @@ export interface DailyPlan {
 
 export type DailyPlansStore = Record<string, DailyPlan>
 
+export type Difficulty = 'easy' | 'just_right' | 'hard'
+
 export interface TaskFeedback {
   taskId: string
   taskText: string
@@ -46,7 +50,7 @@ export interface TaskFeedback {
   completionRate: number
   actualMinutes: number
   estimatedMinutes: number
-  difficulty: 'easy' | 'just_right' | 'hard'
+  difficulty: Difficulty
   materialName?: string
   reflection?: string
   artifact?: string

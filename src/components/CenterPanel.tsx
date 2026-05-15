@@ -6,6 +6,7 @@ import type {
   DailyFeedback,
   DailyPlan,
   DailyPlansStore,
+  Difficulty,
   Goal,
   LearningProfile,
   Task,
@@ -33,7 +34,7 @@ interface CenterPanelProps {
     goalId: string,
     date: string,
     taskId: string,
-    patch: Pick<Task, "reflection" | "artifact">
+    patch: Partial<Pick<Task, "reflection" | "artifact" | "actualMinutes" | "difficulty">>
   ) => void;
   onFeedbackSubmit: (updatedPlans: DailyPlansStore) => void;
   llmPayload: () => { provider: string; apiKey?: string; language: AppLanguage };
@@ -74,6 +75,22 @@ function groupByGoal(items: DayTask[]) {
   return [...map.entries()];
 }
 
+const difficultyOptions: Array<{ value: Difficulty; labelJa: string; labelEn: string }> = [
+  { value: "easy", labelJa: "簡単", labelEn: "Easy" },
+  { value: "just_right", labelJa: "普通", labelEn: "Good" },
+  { value: "hard", labelJa: "難しい", labelEn: "Hard" },
+];
+
+function detailLines(task: Task): string[] {
+  if (!task.detail) return [];
+  const raw = task.detail
+    .split(/\n|・|•|-/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const lines = raw.length > 1 ? raw : [task.detail.trim()];
+  return lines.filter((line) => line !== task.text);
+}
+
 export default function CenterPanel({
   goals,
   plans,
@@ -100,6 +117,8 @@ export default function CenterPanel({
   const [openDetails, setOpenDetails] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [dailyNotes, setDailyNotes] = useState<Record<string, string>>({});
+  const dailyNote = dailyNotes[activeDate] ?? "";
 
   async function submitFeedback() {
     const byGoal = groupByGoal(items);
@@ -122,9 +141,9 @@ export default function CenterPanel({
           taskText: task.text,
           completed: task.completed,
           completionRate: task.completed ? 100 : 0,
-          actualMinutes: task.estimatedMinutes || 30,
+          actualMinutes: task.actualMinutes ?? task.estimatedMinutes ?? 30,
           estimatedMinutes: task.estimatedMinutes || 30,
-          difficulty: "just_right",
+          difficulty: task.difficulty ?? "just_right",
           materialName: goal.materials?.[0]?.name,
           reflection: task.reflection,
           artifact: task.artifact,
@@ -171,10 +190,7 @@ export default function CenterPanel({
             goal,
             date: activeDate,
             taskFeedbacks,
-            overallNote: goalItems
-              .map(({ task }) => [task.reflection, task.artifact].filter(Boolean).join(" / "))
-              .filter(Boolean)
-              .join("\n"),
+            overallNote: dailyNote,
             energyLevel: "medium",
             remainingDays,
             currentPlans,
@@ -204,7 +220,7 @@ export default function CenterPanel({
             date: activeDate,
             goalId,
             taskFeedbacks,
-            overallNote: plan.note ?? "",
+            overallNote: dailyNote,
             energyLevel: "medium",
             createdAt: new Date().toISOString(),
           });
@@ -288,10 +304,11 @@ export default function CenterPanel({
               <section className="flex flex-col gap-3">
                 {items.map(({ goal, task }, index) => {
                   const key = `${goal.id}_${activeDate}_${task.id}`;
-                  const detailOpen = openDetails[key] ?? activeDate === today;
+                  const detailOpen = openDetails[key] ?? false;
+                  const details = detailLines(task);
                   const color = index % 2 === 0 ? "var(--accent)" : "var(--accent-2)";
                   return (
-                    <article key={key} className="border-b border-[var(--border)] pb-3">
+                    <article key={key} className="border-b border-[var(--border)] pb-4">
                       <div className="flex items-start gap-3">
                         <button
                           onClick={() => onToggleTask(goal.id, activeDate, task.id)}
@@ -316,35 +333,30 @@ export default function CenterPanel({
                                   onClick={() => setOpenDetails((prev) => ({ ...prev, [key]: !detailOpen }))}
                                   className="rounded-md border border-[var(--border)] px-2 py-1 text-[11px] text-[var(--muted)]"
                                 >
-                                  {t.detail}
+                                  {t.detail} {detailOpen ? "⌃" : "⌄"}
                                 </button>
                               )}
                             </div>
                           </div>
                           <p className="mt-1 text-[11px] text-[var(--muted)]">{goal.title}</p>
                           {activeDate === today && detailOpen && (
-                            <div className="mt-3 flex flex-col gap-3">
-                              {task.detail && (
-                                <div className="rounded-md bg-[var(--panel)] px-3 py-2 text-xs leading-relaxed text-[var(--muted)]">
-                                  {task.detail}
-                                </div>
+                            <div className="mt-3 rounded-md bg-[var(--panel)] px-4 py-3">
+                              {details.length > 0 ? (
+                                <ul className="flex flex-col gap-2">
+                                  {details.map((line) => (
+                                    <li key={line} className="flex gap-2 text-xs leading-relaxed text-[var(--muted)]">
+                                      <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ background: color }} />
+                                      <span>{line}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              ) : (
+                                <p className="text-xs text-[var(--muted)]">
+                                  {language === "ja"
+                                    ? "このTODOの詳細はまだありません。"
+                                    : "No details have been generated for this TODO yet."}
+                                </p>
                               )}
-                              <div className="grid gap-3 md:grid-cols-2">
-                                <textarea
-                                  value={task.reflection ?? ""}
-                                  onChange={(e) => onTaskMetaChange(goal.id, activeDate, task.id, { reflection: e.target.value, artifact: task.artifact })}
-                                  placeholder={t.memoPlaceholder}
-                                  rows={3}
-                                  className="w-full resize-none rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
-                                />
-                                <textarea
-                                  value={task.artifact ?? ""}
-                                  onChange={(e) => onTaskMetaChange(goal.id, activeDate, task.id, { reflection: task.reflection, artifact: e.target.value })}
-                                  placeholder={t.artifactPlaceholder}
-                                  rows={3}
-                                  className="w-full resize-none rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
-                                />
-                              </div>
                             </div>
                           )}
                         </div>
@@ -355,8 +367,106 @@ export default function CenterPanel({
               </section>
 
               {activeDate === today && (
-                <section className="mt-4 flex flex-col gap-3">
-                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-2)]">{t.feedback}</p>
+                <section className="mt-4 flex flex-col gap-4 border-t border-[var(--border)] pt-6">
+                  <div>
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-2)]">{t.feedback}</p>
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      {language === "ja"
+                        ? "各TODOの実績と、今日学んだことを任意で残せます。"
+                        : "Optionally record actuals for each TODO and what you learned today."}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col gap-4">
+                    {items.map(({ goal, task }, index) => {
+                      const color = index % 2 === 0 ? "var(--accent)" : "var(--accent-2)";
+                      return (
+                        <div key={`${goal.id}_${task.id}_feedback`} className="rounded-lg border border-[var(--border)] bg-white px-4 py-4">
+                          <div className="flex items-start gap-2">
+                            <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ background: color }} />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm leading-relaxed text-[var(--text)]">{task.text}</p>
+                              <p className="mt-1 text-[11px] text-[var(--muted)]">{goal.title}</p>
+                            </div>
+                          </div>
+
+                          <div className="mt-4 grid gap-3 md:grid-cols-[160px_1fr]">
+                            <label className="flex flex-col gap-1">
+                              <span className="text-[11px] font-medium text-[var(--muted)]">
+                                {language === "ja" ? "実際にかかった時間" : "Actual time"}
+                              </span>
+                              <div className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--panel)] px-2 py-1.5">
+                                <input
+                                  type="number"
+                                  min={0}
+                                  max={480}
+                                  value={task.actualMinutes ?? task.estimatedMinutes ?? 30}
+                                  onChange={(e) => onTaskMetaChange(goal.id, activeDate, task.id, { actualMinutes: Number(e.target.value) })}
+                                  className="w-full bg-transparent text-sm outline-none"
+                                />
+                                <span className="text-xs text-[var(--muted)]">分</span>
+                              </div>
+                            </label>
+
+                            <div className="flex flex-col gap-1">
+                              <span className="text-[11px] font-medium text-[var(--muted)]">
+                                {language === "ja" ? "難易度" : "Difficulty"}
+                              </span>
+                              <div className="grid grid-cols-3 gap-1 rounded-md border border-[var(--border)] bg-[var(--panel)] p-1">
+                                {difficultyOptions.map((option) => {
+                                  const selected = (task.difficulty ?? "just_right") === option.value;
+                                  return (
+                                    <button
+                                      key={option.value}
+                                      onClick={() => onTaskMetaChange(goal.id, activeDate, task.id, { difficulty: option.value })}
+                                      className="rounded px-2 py-1.5 text-[11px] font-medium"
+                                      style={{
+                                        background: selected ? "var(--text)" : "transparent",
+                                        color: selected ? "#fff" : "var(--muted)",
+                                      }}
+                                    >
+                                      {language === "ja" ? option.labelJa : option.labelEn}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+
+                          <label className="mt-3 flex flex-col gap-1">
+                            <span className="text-[11px] font-medium text-[var(--muted)]">
+                              {language === "ja" ? "メモによるフィードバック" : "Feedback memo"}
+                            </span>
+                            <textarea
+                              value={task.reflection ?? ""}
+                              onChange={(e) => onTaskMetaChange(goal.id, activeDate, task.id, { reflection: e.target.value })}
+                              placeholder={
+                                language === "ja"
+                                  ? "気づき、詰まった点、成果物やリンクなどをまとめて記録..."
+                                  : "Notes, blockers, artifacts, links..."
+                              }
+                              rows={3}
+                              className="w-full resize-none rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+                            />
+                          </label>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <label className="flex flex-col gap-1">
+                    <span className="text-[11px] font-medium text-[var(--muted)]">
+                      {language === "ja" ? "今日学んだこと" : "What you learned today"}
+                    </span>
+                    <textarea
+                      value={dailyNote}
+                      onChange={(e) => setDailyNotes((prev) => ({ ...prev, [activeDate]: e.target.value }))}
+                      placeholder={language === "ja" ? "任意で今日の学びを記録..." : "Optional daily learning note..."}
+                      rows={3}
+                      className="w-full resize-none rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+                    />
+                  </label>
+
                   <button
                     onClick={submitFeedback}
                     disabled={submitting}
