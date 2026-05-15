@@ -669,14 +669,15 @@ export default function Home() {
           onSelectDate={handleSelectDate}
         />
       ) : (
-        <button
-          onClick={() => handleRightSidebarVisibleChange(true)}
-          className="fixed right-0 top-1/2 z-20 hidden h-10 w-5 -translate-y-1/2 place-items-center rounded-l-md border border-r-0 border-[var(--border)] bg-white text-xs text-[var(--muted)] shadow-sm hover:text-[var(--text)] lg:grid"
-          title={settings.language === "ja" ? "タイムラインを表示" : "Show timeline"}
-          aria-label={settings.language === "ja" ? "タイムラインを表示" : "Show timeline"}
-        >
-          ‹
-        </button>
+        <div className="hidden items-start px-2 pt-3 lg:flex">
+          <button
+            onClick={() => handleRightSidebarVisibleChange(true)}
+            className="rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-[11px] text-[var(--muted)] hover:text-[var(--text)]"
+            title={settings.language === "ja" ? "タイムラインを表示" : "Show timeline"}
+          >
+            {settings.language === "ja" ? "タイムライン ›" : "Timeline ›"}
+          </button>
+        </div>
       )}
 
       {showGoalModal && (
