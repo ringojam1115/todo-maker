@@ -100,28 +100,30 @@ function PeriodCard({
         boxShadow: active ? "0 0 0 1px var(--accent)" : "none",
       }}
     >
-      {/* Main clickable area */}
-      <button onClick={() => onSelectDate(rangeStart)} className="w-full px-3 pb-2 pt-2.5 text-left">
-        <div className="mb-2 flex items-center justify-between gap-2">
+      {/* Header row: label (clickable) + expand toggle */}
+      <div className="flex items-center gap-2 px-3 pt-2.5">
+        <button onClick={() => onSelectDate(rangeStart)} className="min-w-0 flex-1 text-left">
           <span className="text-[11px] font-semibold text-[var(--text)]">{label}</span>
-          {/* Expand toggle — stopPropagation so it doesn't trigger date select */}
-          {focusItems.length > 0 && (
-            <button
-              onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
-              className="shrink-0 text-[var(--muted-2)] hover:text-[var(--muted)]"
-              aria-label={expanded ? "閉じる" : "開く"}
+        </button>
+        {focusItems.length > 0 && (
+          <button
+            onClick={() => setExpanded((v) => !v)}
+            className="shrink-0 text-[var(--muted-2)] hover:text-[var(--muted)]"
+            aria-label={expanded ? "閉じる" : "開く"}
+          >
+            <svg
+              width="10" height="10" viewBox="0 0 10 10" fill="none"
+              className="transition-transform duration-150"
+              style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
             >
-              <svg
-                width="10" height="10" viewBox="0 0 10 10" fill="none"
-                className="transition-transform duration-150"
-                style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
-              >
-                <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </button>
-          )}
-        </div>
+              <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        )}
+      </div>
 
+      {/* Bar + counts — clicking selects the date */}
+      <div onClick={() => onSelectDate(rangeStart)} className="cursor-pointer px-3 pb-2 pt-2">
         {/* Stacked combined bar */}
         <div className="flex h-1.5 overflow-hidden rounded-full bg-[var(--panel)]">
           {entries.map((entry) => {
@@ -146,7 +148,7 @@ function PeriodCard({
             </span>
           ))}
         </div>
-      </button>
+      </div>
 
       {/* Expandable focus/theme section */}
       {expanded && focusItems.length > 0 && (
