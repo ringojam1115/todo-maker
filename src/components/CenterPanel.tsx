@@ -465,7 +465,9 @@ export default function CenterPanel({
                           {language === "ja" ? "今日学んだこと" : "What you learned today"}
                         </p>
                         <p className="mt-1 text-[11px] text-[var(--muted)]">
-                          {language === "ja" ? "任意メモ" : "Optional note"}
+                          {language === "ja"
+                            ? "追加でやったこと・今日の学びを記録（次回のTODO更新に反映されます）"
+                            : "Extra work done & today's learnings — used for next TODO update"}
                         </p>
                       </div>
                     </div>
