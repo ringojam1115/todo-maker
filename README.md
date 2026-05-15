@@ -184,22 +184,42 @@ Connecting Google Calendar lets the AI see your existing events and avoid over-s
 1. In the left menu, go to **APIs & Services** → **Library**
 2. Search for **Google Calendar API** → click it → **Enable**
 
-### Step 3 — Create an OAuth client ID
+### Step 3 — Configure the OAuth consent screen
+
+Before creating the client ID you must set up the consent screen (the popup users see when granting calendar access).
+
+1. Go to **APIs & Services** → **OAuth consent screen**
+2. User type: select **External** → **Create**
+3. Fill in the required fields:
+   - **App name**: `pln` (or anything)
+   - **User support email**: your Google account email
+   - **Developer contact information**: same email
+   - Leave everything else blank → **Save and Continue**
+4. On the **Scopes** page → click **Save and Continue** (no changes needed)
+5. On the **Test users** page:
+   - Click **+ Add users**
+   - Enter **your own Google account email address** (e.g. `yourname@gmail.com`)
+   - Click **Add** → **Save and Continue**
+
+> This step is required because the app stays in "Testing" mode for personal use. Only addresses listed here can authorize with Google Calendar. If you want to share the app with others, add their emails too (up to 100 test users).
+
+6. Review summary → **Back to Dashboard**
+
+### Step 4 — Create an OAuth client ID
 
 1. Go to **APIs & Services** → **Credentials**
-2. Click **Create Credentials** → **OAuth client ID**
-3. If prompted, configure the consent screen first:
-   - User type: **External**
-   - Fill in app name (e.g. `pln`) and your email, then save
-4. Back on Create OAuth client ID:
-   - Application type: **Web application**
-   - Name: anything (e.g. `pln-web`)
-   - **Authorized JavaScript origins** — add your URLs:
-     - `http://localhost:3000` (for local development)
-     - `https://your-app.vercel.app` (your production URL)
-5. Click **Create** — copy the **Client ID** (ends in `.apps.googleusercontent.com`)
+2. Click **+ Create Credentials** → **OAuth client ID**
+3. Fill in the form:
+   - **Application type**: `Web application`
+   - **Name**: anything (e.g. `pln-web`)
+4. Under **Authorized JavaScript origins**, click **+ Add URI** and add:
+   - `http://localhost:3000` ← for local development
+   - `https://your-app.vercel.app` ← your Vercel production URL (add after deploying)
+5. Leave **Authorized redirect URIs** empty
+6. Click **Create**
+7. A popup shows your credentials — copy the **Client ID** (ends in `.apps.googleusercontent.com`)
 
-### Step 4 — Add to your environment
+### Step 5 — Add to your environment
 
 **Local** — add to `.env.local`:
 
@@ -215,7 +235,7 @@ vercel env add NEXT_PUBLIC_GOOGLE_CLIENT_ID
 
 Paste the client ID and select all environments.
 
-### Step 5 — Reconnect in the app
+### Step 6 — Reconnect in the app
 
 In the app, click **Connect Google Calendar** in the center panel header. Grant the permission — your calendar events will now be considered when generating plans.
 
