@@ -108,7 +108,7 @@ function PeriodCard({
           {focusItems.length > 0 && (
             <button
               onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
-              className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-[var(--muted)] hover:bg-[var(--panel)]"
+              className="shrink-0 rounded px-1 py-0.5 text-[9px] text-[var(--muted-2)] hover:text-[var(--muted)]"
             >
               {expanded ? "▲" : "▼"}
             </button>
