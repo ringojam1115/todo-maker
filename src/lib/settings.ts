@@ -8,6 +8,8 @@ export const DEFAULT_SETTINGS: AppSettings = {
   language: "ja",
   sidebarWidth: 260,
   sidebarVisible: true,
+  rightSidebarWidth: 220,
+  rightSidebarVisible: true,
   googleClientId: "",
 };
 
@@ -21,6 +23,8 @@ export function loadSettings(): AppSettings {
       apiKeys: { ...DEFAULT_SETTINGS.apiKeys, ...(parsed.apiKeys ?? {}) },
       sidebarWidth: Math.min(420, Math.max(220, parsed.sidebarWidth ?? DEFAULT_SETTINGS.sidebarWidth)),
       sidebarVisible: parsed.sidebarVisible ?? DEFAULT_SETTINGS.sidebarVisible,
+      rightSidebarWidth: Math.min(360, Math.max(180, parsed.rightSidebarWidth ?? DEFAULT_SETTINGS.rightSidebarWidth)),
+      rightSidebarVisible: parsed.rightSidebarVisible ?? DEFAULT_SETTINGS.rightSidebarVisible,
       googleClientId: parsed.googleClientId ?? DEFAULT_SETTINGS.googleClientId,
     };
   } catch {
