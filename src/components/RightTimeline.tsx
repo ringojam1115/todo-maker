@@ -108,9 +108,16 @@ function PeriodCard({
           {focusItems.length > 0 && (
             <button
               onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
-              className="shrink-0 rounded px-1 py-0.5 text-[9px] text-[var(--muted-2)] hover:text-[var(--muted)]"
+              className="shrink-0 text-[var(--muted-2)] hover:text-[var(--muted)]"
+              aria-label={expanded ? "閉じる" : "開く"}
             >
-              {expanded ? "▲" : "▼"}
+              <svg
+                width="10" height="10" viewBox="0 0 10 10" fill="none"
+                className="transition-transform duration-150"
+                style={{ transform: expanded ? "rotate(180deg)" : "rotate(0deg)" }}
+              >
+                <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
             </button>
           )}
         </div>
