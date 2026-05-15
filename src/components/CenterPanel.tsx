@@ -15,11 +15,6 @@ import type {
 import { UI_TEXT } from "@/lib/settings";
 import { loadFeedbacks, loadProfiles, saveFeedbacks, saveProfiles } from "@/lib/storage";
 
-const GOAL_COLORS = ["var(--accent)", "var(--accent-2)", "#c47a1e", "#9e3e8a", "#c44a4a"];
-function goalColor(goals: Goal[], goalId: string): string {
-  const idx = goals.findIndex((g) => g.id === goalId);
-  return GOAL_COLORS[(idx < 0 ? 0 : idx) % GOAL_COLORS.length];
-}
 
 interface DayTask {
   goal: Goal;
@@ -289,7 +284,7 @@ export default function CenterPanel({
                     .filter((goal) => items.some((item) => item.goal.id === goal.id))
                     .map((goal, index) => (
                       <span key={goal.id} className="rounded-full bg-[var(--panel)] px-3 py-1 text-[11px] text-[var(--muted)]">
-                        <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full" style={{ background: goalColor(goals, goal.id) }} />
+                        <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full" style={{ background: goal.color }} />
                         {goal.title}
                       </span>
                     ))}
@@ -312,7 +307,7 @@ export default function CenterPanel({
                   const key = `${goal.id}_${activeDate}_${task.id}`;
                   const detailOpen = openDetails[key] ?? false;
                   const details = detailLines(task);
-                  const color = goalColor(goals, goal.id);
+                  const color = goal.color;
                   return (
                     <article key={key} className="border-b border-[var(--border)] pb-4">
                       <div className="flex items-start gap-3">
@@ -391,7 +386,7 @@ export default function CenterPanel({
 
                   <div className="flex flex-col gap-3">
                     {items.map(({ goal, task }) => {
-                      const color = goalColor(goals, goal.id);
+                      const color = goal.color;
                       return (
                         <div key={`${goal.id}_${task.id}_feedback`} className="rounded-lg border border-[var(--border)] bg-white px-4 py-3">
                           <div className="flex items-start justify-between gap-3">

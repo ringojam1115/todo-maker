@@ -3,8 +3,6 @@
 import type { AppLanguage, DailyPlansStore, Goal } from "@/types";
 import { UI_TEXT } from "@/lib/settings";
 
-const GOAL_COLORS = ["var(--accent)", "var(--accent-2)", "#c47a1e", "#9e3e8a", "#c44a4a"];
-
 interface RightTimelineProps {
   goals: Goal[];
   plans: DailyPlansStore;
@@ -19,9 +17,6 @@ function uniqueDates(plans: DailyPlansStore): string[] {
   return [...new Set(Object.values(plans).map((p) => p.date))].sort((a, b) => a.localeCompare(b));
 }
 
-function goalColor(index: number): string {
-  return GOAL_COLORS[index % GOAL_COLORS.length];
-}
 
 function formatDay(date: string, language: AppLanguage): string {
   return new Date(date + "T00:00:00").toLocaleDateString(language === "ja" ? "ja-JP" : "en-US", {
@@ -57,7 +52,7 @@ function categorizeDate(date: string, today: string): "daily" | "weekly" | "mont
 function getEntries(goals: Goal[], plans: DailyPlansStore, date: string) {
   return goals.flatMap((goal, index) => {
     const plan = plans[`${goal.id}_${date}`];
-    return plan ? [{ goal, plan, color: goalColor(index) }] : [];
+    return plan ? [{ goal, plan, color: goal.color }] : [];
   });
 }
 
@@ -180,7 +175,7 @@ export default function RightTimeline({
         <div className="flex flex-col gap-1 border-b border-[var(--border)] px-4 py-2">
           {goals.map((goal, index) => (
             <div key={goal.id} className="flex min-w-0 items-center gap-1.5">
-              <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ background: goalColor(index) }} />
+              <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ background: goal.color }} />
               <span className="truncate text-[10px] text-[var(--muted)]">{goal.title}</span>
             </div>
           ))}

@@ -127,17 +127,17 @@ export default function LeftSidebar({
               const progress = getProgress(goal, plans);
               const remaining = daysLeft(goal.deadline);
               const isSelected = selectedGoalId === goal.id;
-              const accent = index % 2 === 0 ? "var(--accent)" : "var(--accent-2)";
+              const color = goal.color;
 
               return (
                 <div
                   key={goal.id}
                   className="group relative rounded-md border border-transparent px-2 py-3 hover:border-[var(--border)] hover:bg-white"
-                  style={{ borderLeft: isSelected ? `2px solid ${accent}` : "2px solid transparent" }}
+                  style={{ borderLeft: isSelected ? `2px solid ${color}` : "2px solid transparent" }}
                 >
                   <button onClick={() => onSelectGoal(goal.id)} className="w-full text-left">
                     <div className="flex items-start gap-2">
-                      <span className="mt-1.5 h-2 w-2 rounded-full" style={{ background: accent }} />
+                      <span className="mt-1.5 h-2 w-2 rounded-full" style={{ background: color }} />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-xs font-semibold text-[var(--text)]">{goal.title}</p>
                         <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-[var(--muted)]">
@@ -145,7 +145,7 @@ export default function LeftSidebar({
                           <span>{remaining >= 0 ? `${remaining}d` : `+${Math.abs(remaining)}d`}</span>
                         </div>
                         <div className="mt-2 h-1 overflow-hidden rounded-full bg-[var(--border)]">
-                          <div className="h-full rounded-full" style={{ width: `${progress}%`, background: accent }} />
+                          <div className="h-full rounded-full" style={{ width: `${progress}%`, background: color }} />
                         </div>
                       </div>
                     </div>

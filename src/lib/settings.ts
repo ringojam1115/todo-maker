@@ -2,6 +2,8 @@ import type { AppSettings, LLMProvider } from "@/types";
 
 const SETTINGS_KEY = "pln_settings";
 
+export const GOAL_COLORS = ["#5f8f3b", "#5279ad", "#c47a1e", "#9e3e8a", "#c44a4a"];
+
 export const DEFAULT_SETTINGS: AppSettings = {
   provider: "openai",
   apiKeys: {},

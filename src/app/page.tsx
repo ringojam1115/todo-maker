@@ -16,7 +16,7 @@ import {
   loadSkillMemos,
   saveSkillMemos,
 } from "@/lib/storage";
-import { DEFAULT_SETTINGS, loadSettings, saveSettings } from "@/lib/settings";
+import { DEFAULT_SETTINGS, GOAL_COLORS, loadSettings, saveSettings } from "@/lib/settings";
 import type { CalendarSlots } from "@/lib/google-calendar";
 import { requestGoogleCalendarToken, getCalendarFreeSlots } from "@/lib/google-calendar";
 import LeftSidebar from "@/components/LeftSidebar";
@@ -63,7 +63,15 @@ export default function Home() {
   const [tipsLoading, setTipsLoading] = useState(false);
 
   useEffect(() => {
-    setGoals(loadGoals());
+    const loaded = loadGoals();
+    // Migrate goals that still have the legacy single color
+    const legacyColors = new Set(["#5c9e2e", "#5f8f3b"]);
+    const allLegacy = loaded.every((g) => legacyColors.has(g.color));
+    const migrated = allLegacy
+      ? loaded.map((g, i) => ({ ...g, color: GOAL_COLORS[i % GOAL_COLORS.length] }))
+      : loaded;
+    if (allLegacy && migrated.length > 0) saveGoals(migrated);
+    setGoals(migrated);
     setPlans(loadPlans());
     setSettings(loadSettings());
   }, []);
@@ -217,7 +225,7 @@ export default function Home() {
           id: uuidv4(),
           ...data,
           createdAt: new Date().toISOString(),
-          color: "#5c9e2e",
+          color: GOAL_COLORS[goals.length % GOAL_COLORS.length],
         };
 
         const otherGoals = goals.map((g) => ({
