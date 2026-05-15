@@ -78,8 +78,8 @@ export default function SettingsModal({
                     onClick={() => update({ language })}
                     className="rounded-lg px-3 py-1.5 text-[11px] font-medium transition-colors"
                     style={{
-                      background: draft.language === language ? "var(--text)" : "transparent",
-                      color: draft.language === language ? "#fff" : "var(--muted)",
+                      background: draft.language === language ? "var(--accent-soft)" : "transparent",
+                      color: draft.language === language ? "var(--accent)" : "var(--muted)",
                     }}
                   >
                     {language === "ja" ? "日本語" : "English"}
@@ -166,7 +166,7 @@ export default function SettingsModal({
             <button onClick={onClose} className="rounded-full px-3 py-1.5 text-[11px] font-medium text-[var(--muted)] hover:bg-[var(--panel)]">
               {draft.language === "ja" ? "閉じる" : "Close"}
             </button>
-            <button onClick={save} className="rounded-full bg-[var(--text)] px-3.5 py-1.5 text-[11px] font-semibold text-white">
+            <button onClick={save} className="rounded-full border border-[#cbdcbc] bg-[#f2f7ee] px-3.5 py-1.5 text-[11px] font-semibold text-[#5f8f3b] hover:bg-[#edf5e7]">
               {draft.language === "ja" ? "保存" : "Save"}
             </button>
           </div>

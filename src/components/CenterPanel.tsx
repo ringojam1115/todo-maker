@@ -312,10 +312,13 @@ export default function CenterPanel({
                       <div className="flex items-start gap-3">
                         <button
                           onClick={() => onToggleTask(goal.id, activeDate, task.id)}
-                          className="mt-0.5 grid h-4 w-4 place-items-center rounded border"
+                          disabled={activeDate !== today}
+                          className="mt-0.5 grid h-4 w-4 flex-shrink-0 place-items-center rounded border"
                           style={{
                             borderColor: task.completed ? color : "var(--border-strong)",
                             background: task.completed ? color : "#fff",
+                            opacity: activeDate !== today ? 0.4 : 1,
+                            cursor: activeDate !== today ? "default" : "pointer",
                           }}
                         >
                           {task.completed && <span className="text-[10px] text-white">✓</span>}
@@ -365,6 +368,14 @@ export default function CenterPanel({
                   );
                 })}
               </section>
+
+              {activeDate !== today && (
+                <p className="mt-4 rounded-md bg-[var(--panel)] px-4 py-3 text-[11px] text-[var(--muted)]">
+                  {language === "ja"
+                    ? "追加でやったことは「今日」の振り返り欄に記録できます。TODO再生成の参考に使われます。"
+                    : "Extra work can be noted in today's reflection section and used for TODO regeneration."}
+                </p>
+              )}
 
               {activeDate === today && (
                 <section className="mt-4 flex flex-col gap-3 border-t border-[var(--border)] pt-6">

@@ -71,37 +71,6 @@ export default function Home() {
   const selectedGoal = goals.find((g) => g.id === selectedGoalId) ?? null;
   const editingGoal = editingGoalId ? goals.find((g) => g.id === editingGoalId) ?? null : null;
 
-  // Fetch learning tips when selected goal changes
-  useEffect(() => {
-    if (!selectedGoal) {
-      setTips([]);
-      setRecommendations([]);
-      return;
-    }
-
-    const goalPlans = Object.entries(plans)
-      .filter(([k]) => k.startsWith(`${selectedGoal.id}_`))
-      .map(([, v]) => v);
-
-    if (goalPlans.length === 0) return;
-
-    setTipsLoading(true);
-    const profiles = loadProfiles();
-    const profile = profiles[selectedGoal.id] ?? null;
-
-    fetch("/api/learning-tips", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ goal: selectedGoal, plans: goalPlans, profile, today, llm: getLLMPayload() }),
-    })
-      .then((r) => r.json())
-      .then((data) => {
-        setTips(data.tips ?? []);
-        setRecommendations(data.recommendations ?? []);
-      })
-      .catch(() => {})
-      .finally(() => setTipsLoading(false));
-  }, [selectedGoalId, settings.provider, settings.language]); // eslint-disable-line react-hooks/exhaustive-deps
   const deletingGoal = deletingGoalId ? goals.find((g) => g.id === deletingGoalId) ?? null : null;
 
   useEffect(() => {
@@ -153,6 +122,28 @@ export default function Home() {
     language: settings.language,
   }), [settings]);
 
+  const fetchTipsForGoal = useCallback((goal: Goal, allPlans: DailyPlansStore) => {
+    const goalPlans = Object.entries(allPlans)
+      .filter(([k]) => k.startsWith(`${goal.id}_`))
+      .map(([, v]) => v);
+    if (goalPlans.length === 0) return;
+    setTipsLoading(true);
+    const profiles = loadProfiles();
+    const profile = profiles[goal.id] ?? null;
+    fetch("/api/learning-tips", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal, plans: goalPlans, profile, today, llm: getLLMPayload() }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        setTips(data.tips ?? []);
+        setRecommendations(data.recommendations ?? []);
+      })
+      .catch(() => {})
+      .finally(() => setTipsLoading(false));
+  }, [today, getLLMPayload]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const handleSettingsSave = useCallback((next: AppSettings) => {
     setSettings(next);
     saveSettings(next);
@@ -192,6 +183,7 @@ export default function Home() {
 
   const handleToggleTask = useCallback(
     (goalId: string, date: string, taskId: string) => {
+      if (date !== today) return;
       const key = `${goalId}_${date}`;
       setPlans((prev) => {
         const plan = prev[key];
@@ -207,7 +199,7 @@ export default function Home() {
         return next;
       });
     },
-    []
+    [today]
   );
 
   const handleNoteChange = useCallback(
@@ -304,13 +296,14 @@ export default function Home() {
         setSelectedDate(null);
         setActiveDate(today);
         setShowGoalModal(false);
+        fetchTipsForGoal(newGoal, { ...plans, ...newPlans });
       } catch (e) {
         setError(e instanceof Error ? e.message : "エラーが発生しました");
       } finally {
         setGeneratingTodos(false);
       }
     },
-    [today, goals, calendarSlots, getLLMPayload]
+    [today, goals, calendarSlots, getLLMPayload, fetchTipsForGoal, plans]
   );
 
   const handleEditGoal = useCallback((goalId: string) => {
@@ -392,6 +385,7 @@ export default function Home() {
               };
             }
             savePlans(next);
+            fetchTipsForGoal(updatedGoal, next);
             return next;
           });
         }
@@ -403,7 +397,7 @@ export default function Home() {
         setSavingGoal(false);
       }
     },
-    [today, goals, calendarSlots, getLLMPayload]
+    [today, goals, calendarSlots, getLLMPayload, fetchTipsForGoal]
   );
 
   const handleDeleteGoal = useCallback((goalId: string) => {
@@ -553,6 +547,7 @@ export default function Home() {
             };
           }
           savePlans(next);
+          if (selectedGoal) fetchTipsForGoal(selectedGoal, next);
           return next;
         });
       } catch (e) {
@@ -561,16 +556,17 @@ export default function Home() {
         setUpdatingTodos(false);
       }
     },
-    [selectedGoal, plans, getLLMPayload]
+    [selectedGoal, plans, getLLMPayload, fetchTipsForGoal]
   );
 
   const handleFeedbackSubmit = useCallback((updatedPlans: DailyPlansStore) => {
     setPlans((prev) => {
       const next = { ...prev, ...updatedPlans };
       savePlans(next);
+      if (selectedGoal) fetchTipsForGoal(selectedGoal, next);
       return next;
     });
-  }, []);
+  }, [selectedGoal, fetchTipsForGoal]);
 
   const handleTaskMetaChange = useCallback(
     (goalId: string, date: string, taskId: string, patch: Partial<Pick<Task, "reflection" | "artifact" | "actualMinutes" | "difficulty">>) => {
@@ -673,16 +669,14 @@ export default function Home() {
           onSelectDate={handleSelectDate}
         />
       ) : (
-        <div className="hidden w-12 min-w-12 flex-col items-center border-l border-[var(--border)] bg-[var(--panel)] py-3 lg:flex">
-          <button
-            onClick={() => handleRightSidebarVisibleChange(true)}
-            className="grid h-8 w-8 place-items-center rounded-md border border-[var(--border)] bg-white text-sm text-[var(--muted)] hover:text-[var(--text)]"
-            title={settings.language === "ja" ? "タイムラインを表示" : "Show timeline"}
-            aria-label={settings.language === "ja" ? "タイムラインを表示" : "Show timeline"}
-          >
-            ‹
-          </button>
-        </div>
+        <button
+          onClick={() => handleRightSidebarVisibleChange(true)}
+          className="fixed right-0 top-1/2 z-20 hidden h-10 w-5 -translate-y-1/2 place-items-center rounded-l-md border border-r-0 border-[var(--border)] bg-white text-xs text-[var(--muted)] shadow-sm hover:text-[var(--text)] lg:grid"
+          title={settings.language === "ja" ? "タイムラインを表示" : "Show timeline"}
+          aria-label={settings.language === "ja" ? "タイムラインを表示" : "Show timeline"}
+        >
+          ‹
+        </button>
       )}
 
       {showGoalModal && (
