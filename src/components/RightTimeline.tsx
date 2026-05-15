@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import type { AppLanguage, DailyPlansStore, Goal, Task } from "@/types";
 import { UI_TEXT } from "@/lib/settings";
 
@@ -86,57 +87,72 @@ function PeriodCard({
   onSelectDate: (d: string) => void;
   variant: "weekly" | "monthly";
 }) {
-  const maxMins = Math.max(...entries.map((e) => e.tasks.reduce((s, t) => s + t.estimatedMinutes, 0)), 1);
+  const [expanded, setExpanded] = useState(false);
   const unitLabel = language === "ja" ? "件" : "";
-
-  // Collect focus texts per goal
+  const totalMins = entries.reduce((s, e) => s + e.tasks.reduce((ts, t) => ts + t.estimatedMinutes, 0), 0);
   const focusItems = entries.filter((e) => e.focus);
 
   return (
-    <button
-      onClick={() => onSelectDate(rangeStart)}
-      className="w-full rounded-lg border bg-white px-3 py-2.5 text-left transition-colors hover:border-[var(--border-strong)]"
+    <div
+      className="overflow-hidden rounded-lg border bg-white transition-colors"
       style={{
         borderColor: active ? "var(--accent)" : "var(--border)",
         boxShadow: active ? "0 0 0 1px var(--accent)" : "none",
       }}
     >
-      <div className="mb-1.5 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-semibold text-[var(--text)]">{label}</span>
-        {focusItems.length > 0 && (
-          <span
-            className="max-w-[90px] shrink-0 truncate rounded-full px-2 py-0.5 text-[9px] font-medium leading-tight"
-            style={
-              variant === "weekly"
-                ? { background: "var(--accent-soft)", color: "var(--accent)" }
-                : { background: "var(--panel)", border: "1px solid var(--border)", color: "var(--muted)" }
-            }
-            title={focusItems.map((e) => e.focus).join(" / ")}
-          >
-            {focusItems[0].focus}
-          </span>
-        )}
-      </div>
-      <div className="flex flex-col gap-1.5">
-        {entries.map((entry) => {
-          const mins = entry.tasks.reduce((s, t) => s + t.estimatedMinutes, 0);
-          const count = entry.tasks.length;
-          const barWidth = Math.round((mins / maxMins) * 100);
-          return (
-            <div key={entry.goal.id} className="flex items-center gap-1.5">
+      {/* Main clickable area */}
+      <button onClick={() => onSelectDate(rangeStart)} className="w-full px-3 pb-2 pt-2.5 text-left">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="text-[11px] font-semibold text-[var(--text)]">{label}</span>
+          {/* Expand toggle — stopPropagation so it doesn't trigger date select */}
+          {focusItems.length > 0 && (
+            <button
+              onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
+              className="shrink-0 rounded px-1.5 py-0.5 text-[10px] text-[var(--muted)] hover:bg-[var(--panel)]"
+            >
+              {expanded ? "▲" : "▼"}
+            </button>
+          )}
+        </div>
+
+        {/* Stacked combined bar */}
+        <div className="flex h-1.5 overflow-hidden rounded-full bg-[var(--panel)]">
+          {entries.map((entry) => {
+            const mins = entry.tasks.reduce((s, t) => s + t.estimatedMinutes, 0);
+            const pct = totalMins > 0 ? (mins / totalMins) * 100 : 100 / entries.length;
+            return (
+              <div
+                key={entry.goal.id}
+                className="h-full"
+                style={{ width: `${pct}%`, background: entry.goal.color, opacity: variant === "weekly" ? 0.75 : 0.5 }}
+              />
+            );
+          })}
+        </div>
+
+        {/* Per-goal task count */}
+        <div className="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5">
+          {entries.map((entry) => (
+            <span key={entry.goal.id} className="flex items-center gap-1 text-[10px] text-[var(--muted)]">
               <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ background: entry.goal.color }} />
-              <div className="h-1 flex-1 overflow-hidden rounded-full bg-[var(--panel)]">
-                <div
-                  className="h-full rounded-full"
-                  style={{ width: `${barWidth}%`, background: entry.goal.color, opacity: variant === "weekly" ? 0.65 : 0.4 }}
-                />
-              </div>
-              <span className="w-8 text-right text-[10px] text-[var(--muted)]">{count}{unitLabel}</span>
-            </div>
-          );
-        })}
-      </div>
-    </button>
+              {entry.tasks.length}{unitLabel}
+            </span>
+          ))}
+        </div>
+      </button>
+
+      {/* Expandable focus/theme section */}
+      {expanded && focusItems.length > 0 && (
+        <div className="border-t border-[var(--border)] px-3 py-2">
+          {focusItems.map((entry) => (
+            <p key={entry.goal.id} className="mb-1 flex items-start gap-1.5 last:mb-0 text-[11px] text-[var(--muted)] leading-relaxed">
+              <span className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ background: entry.goal.color }} />
+              {entry.focus}
+            </p>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
