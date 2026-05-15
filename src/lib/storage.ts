@@ -71,3 +71,25 @@ export function loadSkillMemos(): SkillMemo[] {
 export function saveSkillMemos(memos: SkillMemo[]): void {
   localStorage.setItem(SKILLS_KEY, JSON.stringify(memos));
 }
+
+const TIPS_KEY = "pln_tips";
+
+interface TipsCache {
+  tips: string[];
+  recommendations: { name: string; reason: string }[];
+}
+
+export function loadTipsCache(): Record<string, TipsCache> {
+  if (typeof window === "undefined") return {};
+  try {
+    return JSON.parse(localStorage.getItem(TIPS_KEY) || "{}");
+  } catch {
+    return {};
+  }
+}
+
+export function saveTipsForGoal(goalId: string, tips: string[], recommendations: { name: string; reason: string }[]): void {
+  const all = loadTipsCache();
+  all[goalId] = { tips, recommendations };
+  localStorage.setItem(TIPS_KEY, JSON.stringify(all));
+}

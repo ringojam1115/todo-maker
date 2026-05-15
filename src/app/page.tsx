@@ -15,6 +15,8 @@ import {
   saveProfiles,
   loadSkillMemos,
   saveSkillMemos,
+  loadTipsCache,
+  saveTipsForGoal,
 } from "@/lib/storage";
 import { DEFAULT_SETTINGS, GOAL_COLORS, loadSettings, saveSettings } from "@/lib/settings";
 import type { CalendarSlots } from "@/lib/google-calendar";
@@ -101,6 +103,10 @@ export default function Home() {
       setOpenTabs([{ date: today, label: "今日" }]);
       setSelectedDate(null);
       setActiveDate(today);
+      // Load cached tips for the selected goal (no API call)
+      const cached = loadTipsCache()[goalId];
+      setTips(cached?.tips ?? []);
+      setRecommendations(cached?.recommendations ?? []);
     },
     [today]
   );
@@ -145,8 +151,11 @@ export default function Home() {
     })
       .then((r) => r.json())
       .then((data) => {
-        setTips(data.tips ?? []);
-        setRecommendations(data.recommendations ?? []);
+        const t = data.tips ?? [];
+        const r = data.recommendations ?? [];
+        setTips(t);
+        setRecommendations(r);
+        saveTipsForGoal(goal.id, t, r);
       })
       .catch(() => {})
       .finally(() => setTipsLoading(false));
