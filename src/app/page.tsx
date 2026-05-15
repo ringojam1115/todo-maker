@@ -132,26 +132,32 @@ export default function Home() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             goalTitle: newGoal.title,
-            goalDescription: newGoal.description,
             deadline: newGoal.deadline,
             today,
+            currentLevel: newGoal.currentLevel,
+            dailyMinutes: newGoal.dailyMinutes,
+            materials: newGoal.materials,
           }),
         });
 
         if (!res.ok) throw new Error("AIのTODO生成に失敗しました");
 
-        const dailyPlan: Array<{ date: string; tasks: string[]; focus: string }> =
-          await res.json();
+        const dailyPlan: Array<{
+          date: string;
+          tasks: Array<{ id: string; text: string; estimatedMinutes: number }>;
+          focus: string;
+        }> = await res.json();
 
         const newPlans: DailyPlansStore = {};
         for (const day of dailyPlan) {
           const key = `${newGoal.id}_${day.date}`;
           newPlans[key] = {
             date: day.date,
-            tasks: day.tasks.map((text) => ({
-              id: uuidv4(),
-              text,
+            tasks: (day.tasks || []).map((task) => ({
+              id: task.id || uuidv4(),
+              text: task.text,
               completed: false,
+              estimatedMinutes: task.estimatedMinutes || 0,
             })),
             note: "",
             focus: day.focus,
@@ -191,9 +197,7 @@ export default function Home() {
       setUpdatingTodos(true);
       setError(null);
       try {
-        const completedTasks = plan.tasks
-          .filter((t) => t.completed)
-          .map((t) => t.text);
+        const completedTasks = plan.tasks.filter((t) => t.completed).map((t) => t.text);
 
         const deadlineDate = new Date(selectedGoal.deadline + "T00:00:00");
         const activeD = new Date(date + "T00:00:00");
@@ -248,6 +252,7 @@ export default function Home() {
                 id: uuidv4(),
                 text,
                 completed: false,
+                estimatedMinutes: 0,
               })),
               note: prev[k]?.note ?? "",
               focus: day.focus,
@@ -264,6 +269,14 @@ export default function Home() {
     },
     [selectedGoal, plans]
   );
+
+  const handleFeedbackSubmit = useCallback((updatedPlans: DailyPlansStore) => {
+    setPlans((prev) => {
+      const next = { ...prev, ...updatedPlans };
+      savePlans(next);
+      return next;
+    });
+  }, []);
 
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "#f2f2ef" }}>
@@ -286,6 +299,7 @@ export default function Home() {
         onNoteChange={handleNoteChange}
         onUpdateTodos={handleUpdateTodos}
         updatingTodos={updatingTodos}
+        onFeedbackSubmit={handleFeedbackSubmit}
       />
 
       <RightTimeline
