@@ -101,5 +101,7 @@ export interface AppSettings {
   language: AppLanguage
   sidebarWidth: number
   sidebarVisible: boolean
+  rightSidebarWidth: number
+  rightSidebarVisible: boolean
   googleClientId?: string
 }

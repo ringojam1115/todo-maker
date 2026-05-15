@@ -8,6 +8,9 @@ interface RightTimelineProps {
   plans: DailyPlansStore;
   activeDate: string;
   language: AppLanguage;
+  width: number;
+  onWidthChange: (width: number) => void;
+  onHideSidebar: () => void;
   onSelectDate: (date: string) => void;
 }
 
@@ -38,17 +41,58 @@ function rangeLabel(date: string, language: AppLanguage): string {
   return `${d.toLocaleDateString(locale, { month: "numeric", day: "numeric" })}-${end.toLocaleDateString(locale, { month: "numeric", day: "numeric" })}`;
 }
 
-export default function RightTimeline({ goals, plans, activeDate, language, onSelectDate }: RightTimelineProps) {
+export default function RightTimeline({
+  goals,
+  plans,
+  activeDate,
+  language,
+  width,
+  onWidthChange,
+  onHideSidebar,
+  onSelectDate,
+}: RightTimelineProps) {
   const t = UI_TEXT[language];
   const today = new Date().toISOString().split("T")[0];
   const dates = uniqueDates(plans);
   const nextSeven = dates.filter((date) => date <= new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]);
   const later = dates.filter((date) => !nextSeven.includes(date));
 
+  function startResize(e: React.MouseEvent<HTMLDivElement>) {
+    const startX = e.clientX;
+    const startWidth = width;
+
+    function move(ev: MouseEvent) {
+      onWidthChange(Math.min(360, Math.max(180, startWidth - (ev.clientX - startX))));
+    }
+    function up() {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    }
+
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
+
   return (
-    <aside className="hidden h-full w-[220px] min-w-[220px] flex-col border-l border-[var(--border)] bg-[var(--panel)] lg:flex">
-      <div className="border-b border-[var(--border)] px-4 py-4">
+    <aside
+      className="relative hidden h-full flex-col border-l border-[var(--border)] bg-[var(--panel)] lg:flex"
+      style={{ width, minWidth: width }}
+    >
+      <div
+        onMouseDown={startResize}
+        className="absolute left-[-3px] top-0 h-full w-1 cursor-col-resize hover:bg-[var(--accent)]"
+      />
+
+      <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-4">
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--muted-2)]">{t.timeline}</p>
+        <button
+          onClick={onHideSidebar}
+          className="grid h-6 w-6 place-items-center rounded-md border border-[var(--border)] bg-white text-[11px] text-[var(--muted)] hover:text-[var(--text)]"
+          title={language === "ja" ? "タイムラインを閉じる" : "Hide timeline"}
+          aria-label={language === "ja" ? "タイムラインを閉じる" : "Hide timeline"}
+        >
+          ›
+        </button>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">

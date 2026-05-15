@@ -174,6 +174,22 @@ export default function Home() {
     });
   }, []);
 
+  const handleRightSidebarWidthChange = useCallback((width: number) => {
+    setSettings((prev) => {
+      const next = { ...prev, rightSidebarWidth: width };
+      saveSettings(next);
+      return next;
+    });
+  }, []);
+
+  const handleRightSidebarVisibleChange = useCallback((visible: boolean) => {
+    setSettings((prev) => {
+      const next = { ...prev, rightSidebarVisible: visible };
+      saveSettings(next);
+      return next;
+    });
+  }, []);
+
   const handleToggleTask = useCallback(
     (goalId: string, date: string, taskId: string) => {
       const key = `${goalId}_${date}`;
@@ -645,13 +661,29 @@ export default function Home() {
         llmPayload={getLLMPayload}
       />
 
-      <RightTimeline
-        goals={goals}
-        plans={plans}
-        activeDate={activeDate}
-        language={settings.language}
-        onSelectDate={handleSelectDate}
-      />
+      {settings.rightSidebarVisible ? (
+        <RightTimeline
+          goals={goals}
+          plans={plans}
+          activeDate={activeDate}
+          language={settings.language}
+          width={settings.rightSidebarWidth}
+          onWidthChange={handleRightSidebarWidthChange}
+          onHideSidebar={() => handleRightSidebarVisibleChange(false)}
+          onSelectDate={handleSelectDate}
+        />
+      ) : (
+        <div className="hidden w-12 min-w-12 flex-col items-center border-l border-[var(--border)] bg-[var(--panel)] py-3 lg:flex">
+          <button
+            onClick={() => handleRightSidebarVisibleChange(true)}
+            className="grid h-8 w-8 place-items-center rounded-md border border-[var(--border)] bg-white text-sm text-[var(--muted)] hover:text-[var(--text)]"
+            title={settings.language === "ja" ? "タイムラインを表示" : "Show timeline"}
+            aria-label={settings.language === "ja" ? "タイムラインを表示" : "Show timeline"}
+          >
+            ‹
+          </button>
+        </div>
+      )}
 
       {showGoalModal && (
         <GoalModal

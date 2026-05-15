@@ -367,110 +367,110 @@ export default function CenterPanel({
               </section>
 
               {activeDate === today && (
-                <section className="mt-4 flex flex-col gap-4 border-t border-[var(--border)] pt-6">
-                  <div>
+                <section className="mt-4 flex flex-col gap-3 border-t border-[var(--border)] pt-6">
+                  <div className="mb-1">
                     <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[var(--muted-2)]">{t.feedback}</p>
-                    <p className="mt-1 text-xs text-[var(--muted)]">
-                      {language === "ja"
-                        ? "各TODOの実績と、今日学んだことを任意で残せます。"
-                        : "Optionally record actuals for each TODO and what you learned today."}
-                    </p>
                   </div>
 
-                  <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-3">
                     {items.map(({ goal, task }, index) => {
                       const color = index % 2 === 0 ? "var(--accent)" : "var(--accent-2)";
                       return (
-                        <div key={`${goal.id}_${task.id}_feedback`} className="rounded-lg border border-[var(--border)] bg-white px-4 py-4">
-                          <div className="flex items-start gap-2">
+                        <div key={`${goal.id}_${task.id}_feedback`} className="rounded-lg border border-[var(--border)] bg-white px-4 py-3">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="flex min-w-0 items-start gap-2">
                             <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ background: color }} />
                             <div className="min-w-0 flex-1">
                               <p className="text-sm leading-relaxed text-[var(--text)]">{task.text}</p>
-                              <p className="mt-1 text-[11px] text-[var(--muted)]">{goal.title}</p>
+                              <p className="mt-1 text-[11px] font-semibold" style={{ color }}>
+                                {goal.title}
+                              </p>
                             </div>
+                            </div>
+                            {task.completed && (
+                              <span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
+                                {language === "ja" ? "完了" : "Done"}
+                              </span>
+                            )}
                           </div>
 
-                          <div className="mt-4 grid gap-3 md:grid-cols-[160px_1fr]">
-                            <label className="flex flex-col gap-1">
-                              <span className="text-[11px] font-medium text-[var(--muted)]">
-                                {language === "ja" ? "実際にかかった時間" : "Actual time"}
-                              </span>
-                              <div className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--panel)] px-2 py-1.5">
-                                <input
-                                  type="number"
-                                  min={0}
-                                  max={480}
-                                  value={task.actualMinutes ?? task.estimatedMinutes ?? 30}
-                                  onChange={(e) => onTaskMetaChange(goal.id, activeDate, task.id, { actualMinutes: Number(e.target.value) })}
-                                  className="w-full bg-transparent text-sm outline-none"
-                                />
-                                <span className="text-xs text-[var(--muted)]">分</span>
-                              </div>
+                          <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px] text-[var(--muted)]">
+                            <span>{language === "ja" ? "時間" : "Time"}</span>
+                            <label className="flex items-center gap-1">
+                              <input
+                                type="number"
+                                min={0}
+                                max={480}
+                                value={task.actualMinutes ?? task.estimatedMinutes ?? 30}
+                                onChange={(e) => onTaskMetaChange(goal.id, activeDate, task.id, { actualMinutes: Number(e.target.value) })}
+                                className="h-6 w-12 rounded border border-[var(--border)] bg-[var(--panel)] px-2 text-center text-[11px] text-[var(--text)] outline-none focus:border-[var(--accent)]"
+                              />
+                              <span>{language === "ja" ? "分" : "min"}</span>
                             </label>
 
-                            <div className="flex flex-col gap-1">
-                              <span className="text-[11px] font-medium text-[var(--muted)]">
-                                {language === "ja" ? "難易度" : "Difficulty"}
-                              </span>
-                              <div className="grid grid-cols-3 gap-1 rounded-md border border-[var(--border)] bg-[var(--panel)] p-1">
-                                {difficultyOptions.map((option) => {
-                                  const selected = (task.difficulty ?? "just_right") === option.value;
-                                  return (
-                                    <button
-                                      key={option.value}
-                                      onClick={() => onTaskMetaChange(goal.id, activeDate, task.id, { difficulty: option.value })}
-                                      className="rounded px-2 py-1.5 text-[11px] font-medium"
-                                      style={{
-                                        background: selected ? "var(--text)" : "transparent",
-                                        color: selected ? "#fff" : "var(--muted)",
-                                      }}
-                                    >
-                                      {language === "ja" ? option.labelJa : option.labelEn}
-                                    </button>
-                                  );
-                                })}
-                              </div>
+                            <span className="ml-1">{language === "ja" ? "難易度" : "Difficulty"}</span>
+                            <div className="flex gap-1">
+                              {difficultyOptions.map((option) => {
+                                const selected = (task.difficulty ?? "just_right") === option.value;
+                                return (
+                                  <button
+                                    key={option.value}
+                                    onClick={() => onTaskMetaChange(goal.id, activeDate, task.id, { difficulty: option.value })}
+                                    className="rounded-full border px-2.5 py-0.5 text-[10px] font-medium"
+                                    style={{
+                                      background: selected ? "var(--panel)" : "#fff",
+                                      borderColor: selected ? "var(--border-strong)" : "var(--border)",
+                                      color: selected ? "var(--text)" : "var(--muted)",
+                                    }}
+                                  >
+                                    {language === "ja" ? option.labelJa : option.labelEn}
+                                  </button>
+                                );
+                              })}
                             </div>
                           </div>
 
-                          <label className="mt-3 flex flex-col gap-1">
-                            <span className="text-[11px] font-medium text-[var(--muted)]">
-                              {language === "ja" ? "メモによるフィードバック" : "Feedback memo"}
-                            </span>
-                            <textarea
-                              value={task.reflection ?? ""}
-                              onChange={(e) => onTaskMetaChange(goal.id, activeDate, task.id, { reflection: e.target.value })}
-                              placeholder={
-                                language === "ja"
-                                  ? "気づき、詰まった点、成果物やリンクなどをまとめて記録..."
-                                  : "Notes, blockers, artifacts, links..."
-                              }
-                              rows={3}
-                              className="w-full resize-none rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
-                            />
-                          </label>
+                          <textarea
+                            value={task.reflection ?? ""}
+                            onChange={(e) => onTaskMetaChange(goal.id, activeDate, task.id, { reflection: e.target.value })}
+                            placeholder={
+                              language === "ja"
+                                ? "気づき、詰まった点、成果などを記録..."
+                                : "Notes, blockers, artifacts..."
+                            }
+                            rows={3}
+                            className="mt-3 w-full resize-none rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-2)] focus:border-[var(--accent)]"
+                          />
                         </div>
                       );
                     })}
                   </div>
 
-                  <label className="flex flex-col gap-1">
-                    <span className="text-[11px] font-medium text-[var(--muted)]">
-                      {language === "ja" ? "今日学んだこと" : "What you learned today"}
-                    </span>
+                  <div className="rounded-lg border border-[var(--border)] bg-white px-4 py-3">
+                    <div className="flex items-start gap-2">
+                      <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[var(--muted-2)]" />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm leading-relaxed text-[var(--text)]">
+                          {language === "ja" ? "今日学んだこと" : "What you learned today"}
+                        </p>
+                        <p className="mt-1 text-[11px] text-[var(--muted)]">
+                          {language === "ja" ? "任意メモ" : "Optional note"}
+                        </p>
+                      </div>
+                    </div>
                     <textarea
                       value={dailyNote}
                       onChange={(e) => setDailyNotes((prev) => ({ ...prev, [activeDate]: e.target.value }))}
-                      placeholder={language === "ja" ? "任意で今日の学びを記録..." : "Optional daily learning note..."}
+                      placeholder={language === "ja" ? "今日の学び、次回に活かしたいことを記録..." : "What did you learn today?"}
                       rows={3}
-                      className="w-full resize-none rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none focus:border-[var(--accent)]"
+                      className="mt-3 w-full resize-none rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-2)] focus:border-[var(--accent)]"
                     />
-                  </label>
+                  </div>
 
                   <button
                     onClick={submitFeedback}
                     disabled={submitting}
-                    className="self-start rounded-md bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+                    className="mt-2 self-center rounded-full border border-[#cbdcbc] bg-[#f2f7ee] px-3 py-1.5 text-[11px] font-medium text-[#5f8f3b] transition-colors hover:border-[#b8d0a4] hover:bg-[#edf5e7] disabled:opacity-40"
                   >
                     {submitting ? (language === "ja" ? "送信中..." : "Submitting...") : t.submitFeedback}
                   </button>
