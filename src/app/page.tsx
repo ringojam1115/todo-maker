@@ -557,7 +557,7 @@ export default function Home() {
   }, []);
 
   const handleTaskMetaChange = useCallback(
-    (goalId: string, date: string, taskId: string, patch: Pick<Task, "reflection" | "artifact">) => {
+    (goalId: string, date: string, taskId: string, patch: Partial<Pick<Task, "reflection" | "artifact" | "actualMinutes" | "difficulty">>) => {
       const key = `${goalId}_${date}`;
       setPlans((prev) => {
         const plan = prev[key];
