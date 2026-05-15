@@ -1,19 +1,17 @@
 import { NextResponse } from "next/server";
 import type { DailyPlan } from "@/types";
+import type { LLMRequestSettings } from "@/lib/llm";
+import { callTextLLM, languageInstruction, parseJsonText } from "@/lib/llm";
 
 export async function POST(request: Request) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "OPENAI_API_KEY not set" }, { status: 500 });
-  }
-
-  const { goalTitle, note, completedTasks, remainingDays, currentPlan } = await request.json();
+  const { goalTitle, note, completedTasks, remainingDays, currentPlan, llm }: { llm?: LLMRequestSettings } & Record<string, unknown> = await request.json();
 
   const prompt = `Goal: ${goalTitle}
 Today's progress note: ${note}
 Completed tasks today: ${JSON.stringify(completedTasks)}
 Days remaining: ${remainingDays}
 Current remaining plan: ${JSON.stringify(currentPlan)}
+${languageInstruction(llm?.language)}
 
 Based on today's progress, adjust the remaining daily TODO plan.
 Return updated JSON plan for remaining days only.
@@ -26,31 +24,11 @@ Return only valid JSON array, no explanation, no markdown:
   }
 ]`;
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: "gpt-4o-mini",
-      messages: [{ role: "user", content: prompt }],
-    }),
-  });
-
-  if (!res.ok) {
-    const err = await res.text();
-    return NextResponse.json({ error: err }, { status: 500 });
-  }
-
-  const data = await res.json();
-  const text: string = data.choices[0].message.content;
-
   try {
-    const cleaned = text.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-    const updated: DailyPlan[] = JSON.parse(cleaned);
+    const text = await callTextLLM(prompt, llm);
+    const updated: DailyPlan[] = parseJsonText(text);
     return NextResponse.json(updated);
-  } catch {
-    return NextResponse.json({ error: "Failed to parse AI response", raw: text }, { status: 500 });
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : "Failed to update TODOs" }, { status: 500 });
   }
 }

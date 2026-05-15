@@ -1,46 +1,48 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
-import type { Goal, DailyPlansStore } from "@/types";
+import type { AppLanguage, DailyPlansStore, Goal } from "@/types";
+import { UI_TEXT } from "@/lib/settings";
+
+interface Recommendation {
+  name: string;
+  reason: string;
+}
 
 interface LeftSidebarProps {
   goals: Goal[];
   selectedGoalId: string | null;
   plans: DailyPlansStore;
+  width: number;
+  language: AppLanguage;
+  onWidthChange: (width: number) => void;
   onSelectGoal: (goalId: string) => void;
   onAddGoal: () => void;
   onEditGoal: (goalId: string) => void;
   onDeleteGoal: (goalId: string) => void;
-  calendarConnected: boolean;
-  onConnectCalendar: () => void;
+  onHideSidebar: () => void;
+  onOpenSettings: () => void;
+  tips?: string[];
+  recommendations?: Recommendation[];
+  tipsLoading?: boolean;
 }
 
 function getProgress(goal: Goal, plans: DailyPlansStore): number {
-  const start = goal.createdAt.split("T")[0];
-  const deadline = goal.deadline;
-
   let total = 0;
   let done = 0;
-
-  const d = new Date(start);
-  const end = new Date(deadline);
-  while (d <= end) {
-    const key = `${goal.id}_${d.toISOString().split("T")[0]}`;
-    const plan = plans[key];
-    if (plan?.tasks?.length) {
-      total += plan.tasks.length;
-      done += plan.tasks.filter((t) => t.completed).length;
-    }
-    d.setDate(d.getDate() + 1);
+  for (const [key, plan] of Object.entries(plans)) {
+    if (!key.startsWith(`${goal.id}_`)) continue;
+    total += plan.tasks.length;
+    done += plan.tasks.filter((task) => task.completed).length;
   }
-
   return total === 0 ? 0 : Math.round((done / total) * 100);
 }
 
-function formatDeadline(deadline: string): string {
-  const d = new Date(deadline + "T00:00:00");
-  return d.toLocaleDateString("ja-JP", { month: "short", day: "numeric" });
+function formatDeadline(deadline: string, language: AppLanguage): string {
+  return new Date(deadline + "T00:00:00").toLocaleDateString(language === "ja" ? "ja-JP" : "en-US", {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 function daysLeft(deadline: string): number {
@@ -54,185 +56,173 @@ export default function LeftSidebar({
   goals,
   selectedGoalId,
   plans,
+  width,
+  language,
+  onWidthChange,
   onSelectGoal,
   onAddGoal,
   onEditGoal,
   onDeleteGoal,
-  calendarConnected,
-  onConnectCalendar,
+  onHideSidebar,
+  onOpenSettings,
+  tips = [],
+  recommendations = [],
+  tipsLoading = false,
 }: LeftSidebarProps) {
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const t = UI_TEXT[language];
+
+  function startResize(e: React.MouseEvent<HTMLDivElement>) {
+    const startX = e.clientX;
+    const startWidth = width;
+
+    function move(ev: MouseEvent) {
+      onWidthChange(Math.min(420, Math.max(220, startWidth + ev.clientX - startX)));
+    }
+    function up() {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    }
+
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  }
 
   return (
     <aside
-      className="flex flex-col h-full"
-      style={{
-        width: 240,
-        minWidth: 240,
-        background: "#f2f2ef",
-        borderRight: "1px solid #e0e0da",
-      }}
+      className="relative flex h-full flex-col border-r border-[var(--border)] bg-[var(--panel)]"
+      style={{ width, minWidth: width }}
     >
-      {/* Header */}
-      <div
-        className="flex items-center justify-between px-4 py-4 flex-shrink-0"
-        style={{ borderBottom: "1px solid #e0e0da" }}
-      >
-        <span className="font-bold text-sm tracking-wide" style={{ color: "#1a1a1a" }}>
-          PLN
-        </span>
-        <button
-          onClick={onAddGoal}
-          className="w-7 h-7 rounded-full flex items-center justify-center text-white text-base font-medium transition-opacity hover:opacity-80"
-          style={{ background: "#5c9e2e" }}
-          title="新しいゴールを追加"
-        >
-          +
-        </button>
+      <div className="flex h-12 items-center justify-between border-b border-[var(--border)] px-4">
+        <button onClick={onHideSidebar} className="text-base font-bold lowercase text-[var(--text)]">pln.</button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={onOpenSettings}
+            className="grid h-7 w-7 place-items-center rounded-md border border-[var(--border)] text-[var(--muted)] hover:bg-white"
+            title={t.settings}
+          >
+            ⚙
+          </button>
+          <button
+            onClick={onAddGoal}
+            className="grid h-7 w-7 place-items-center rounded-md border border-[var(--border)] bg-white text-sm text-[var(--text)] hover:border-[var(--border-strong)]"
+            title={t.addGoal}
+          >
+            +
+          </button>
+        </div>
       </div>
 
-      {/* Goal list */}
-      <div className="flex-1 overflow-y-auto py-2 flex flex-col">
-        {goals.length === 0 ? (
-          <div className="px-4 py-6 text-center">
-            <p className="text-xs" style={{ color: "#aaa" }}>
-              ゴールがありません
-            </p>
-            <p className="text-xs mt-1" style={{ color: "#aaa" }}>
-              + で追加してください
-            </p>
-          </div>
-        ) : (
-          goals.map((goal) => {
-            const progress = getProgress(goal, plans);
-            const isSelected = goal.id === selectedGoalId;
-            const remaining = daysLeft(goal.deadline);
-            const isOverdue = remaining < 0;
-            const isUrgent = remaining >= 0 && remaining <= 3;
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-4">
+          <p className="mb-3 px-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--muted-2)]">
+            {t.goals}
+          </p>
 
-            return (
-              <div
-                key={goal.id}
-                className="relative"
-                onMouseEnter={() => setHoveredId(goal.id)}
-                onMouseLeave={() => setHoveredId(null)}
-              >
-                <button
-                  onClick={() => onSelectGoal(goal.id)}
-                  className="w-full text-left px-4 py-3 flex flex-col gap-1.5 transition-colors"
-                  style={{
-                    background: isSelected ? "rgba(92,158,46,0.08)" : "transparent",
-                    borderLeft: isSelected ? "2px solid #5c9e2e" : "2px solid transparent",
-                  }}
+          {goals.length === 0 ? (
+            <button onClick={onAddGoal} className="rounded-md border border-dashed border-[var(--border)] px-3 py-5 text-xs text-[var(--muted)]">
+              {t.addGoal}
+            </button>
+          ) : (
+            goals.map((goal, index) => {
+              const progress = getProgress(goal, plans);
+              const remaining = daysLeft(goal.deadline);
+              const isSelected = selectedGoalId === goal.id;
+              const accent = index % 2 === 0 ? "var(--accent)" : "var(--accent-2)";
+
+              return (
+                <div
+                  key={goal.id}
+                  className="group relative rounded-md border border-transparent px-2 py-3 hover:border-[var(--border)] hover:bg-white"
+                  style={{ borderLeft: isSelected ? `2px solid ${accent}` : "2px solid transparent" }}
                 >
-                  <div className="flex items-start justify-between gap-1 pr-10">
-                    <span
-                      className="text-xs font-semibold leading-snug"
-                      style={{ color: "#1a1a1a" }}
-                    >
-                      {goal.title}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between">
-                    <span
-                      className="text-xs"
-                      style={{
-                        color: isOverdue ? "#e53e3e" : isUrgent ? "#e07b00" : "#888",
-                        fontFamily: "var(--font-jetbrains-mono), monospace",
-                      }}
-                    >
-                      {isOverdue
-                        ? `${Math.abs(remaining)}日超過`
-                        : `${formatDeadline(goal.deadline)}まで`}
-                    </span>
-                    <span className="text-xs font-medium" style={{ color: "#5c9e2e" }}>
-                      {progress}%
-                    </span>
-                  </div>
-                  <div className="rounded-full overflow-hidden" style={{ height: 3, background: "#e0e0da" }}>
-                    <div
-                      className="h-full rounded-full transition-all"
-                      style={{ width: `${progress}%`, background: "#5c9e2e" }}
-                    />
-                  </div>
-                </button>
+                  <button onClick={() => onSelectGoal(goal.id)} className="w-full text-left">
+                    <div className="flex items-start gap-2">
+                      <span className="mt-1.5 h-2 w-2 rounded-full" style={{ background: accent }} />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-semibold text-[var(--text)]">{goal.title}</p>
+                        <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-[var(--muted)]">
+                          <span>{formatDeadline(goal.deadline, language)} {language === "ja" ? "まで" : ""}</span>
+                          <span>{remaining >= 0 ? `${remaining}d` : `+${Math.abs(remaining)}d`}</span>
+                        </div>
+                        <div className="mt-2 h-1 overflow-hidden rounded-full bg-[var(--border)]">
+                          <div className="h-full rounded-full" style={{ width: `${progress}%`, background: accent }} />
+                        </div>
+                      </div>
+                    </div>
+                  </button>
 
-                {/* Edit / Delete buttons (show on hover) */}
-                {hoveredId === goal.id && (
-                  <div className="absolute top-2 right-2 flex gap-0.5 z-10">
+                  <div className="absolute right-2 top-2 hidden gap-1 group-hover:flex">
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onEditGoal(goal.id);
-                      }}
-                      title="編集"
-                      className="w-6 h-6 rounded flex items-center justify-center hover:bg-black/10 transition-colors"
-                      style={{ color: "#888" }}
+                      onClick={() => onEditGoal(goal.id)}
+                      className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-[var(--muted)] shadow-sm ring-1 ring-[var(--border)] hover:text-[var(--text)]"
+                      title={language === "ja" ? "編集" : "Edit"}
+                      aria-label={language === "ja" ? "編集" : "Edit"}
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                        <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      <svg width="10" height="10" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                        <path d="M2.2 8.8l.35-1.9L7.65 1.8a1.12 1.12 0 0 1 1.58 0l.97.97a1.12 1.12 0 0 1 0 1.58L5.1 9.45l-1.9.35a.85.85 0 0 1-1-1Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+                        <path d="M6.9 2.6l2.5 2.5" stroke="currentColor" strokeWidth="1.1" strokeLinecap="round" />
                       </svg>
                     </button>
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onDeleteGoal(goal.id);
-                      }}
-                      title="削除"
-                      className="w-6 h-6 rounded flex items-center justify-center hover:bg-red-100 transition-colors"
-                      style={{ color: "#e53e3e" }}
+                      onClick={() => onDeleteGoal(goal.id)}
+                      className="flex h-5 w-5 items-center justify-center rounded-full bg-white text-red-500 shadow-sm ring-1 ring-[var(--border)] hover:bg-red-50"
+                      title={language === "ja" ? "削除" : "Delete"}
+                      aria-label={language === "ja" ? "削除" : "Delete"}
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                        <polyline points="3 6 5 6 21 6" />
-                        <path d="M19 6l-1 14H6L5 6" />
-                        <path d="M10 11v6M14 11v6" />
-                        <path d="M9 6V4h6v2" />
+                      <svg width="9" height="9" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                        <path d="M3 3l6 6M9 3L3 9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                       </svg>
                     </button>
                   </div>
-                )}
-              </div>
-            );
-          })
-        )}
+                </div>
+              );
+            })
+          )}
+        </div>
+
+        <div className="max-h-[50%] overflow-y-auto border-t border-[var(--border)] px-2 py-3">
+          <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--muted-2)]">
+            {t.tips}
+          </p>
+          {tipsLoading ? (
+            <p className="rounded-md border border-[var(--border)] bg-white px-3 py-3 text-xs text-[var(--muted)]">
+              {language === "ja" ? "分析中..." : "Analyzing..."}
+            </p>
+          ) : tips.length === 0 ? (
+            <p className="px-2 py-2 text-xs text-[var(--muted-2)]">
+              {language === "ja" ? "TODOを作ると表示されます" : "Tips appear after TODOs are created"}
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {tips.slice(0, 3).map((tip, index) => (
+                <div key={tip} className="rounded-md border border-[var(--border)] bg-white px-3 py-2">
+                  <div className="flex gap-2">
+                    <span className="text-[10px] font-semibold text-[var(--accent)]">{index + 1}</span>
+                    <p className="text-xs leading-relaxed text-[var(--text)]">{tip}</p>
+                  </div>
+                </div>
+              ))}
+              {recommendations.slice(0, 1).map((item) => (
+                <div key={item.name} className="rounded-md border border-[var(--border)] bg-white px-3 py-2">
+                  <p className="text-xs font-semibold text-[var(--text)]">{item.name}</p>
+                  <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)]">{item.reason}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* Footer */}
-      <div
-        className="px-4 py-3 flex flex-col gap-2 flex-shrink-0"
-        style={{ borderTop: "1px solid #e0e0da" }}
-      >
-        {/* Google Calendar */}
-        <button
-          onClick={onConnectCalendar}
-          className="flex items-center gap-2 text-xs hover:opacity-70 transition-opacity text-left"
-          style={{ color: calendarConnected ? "#5c9e2e" : "#888" }}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
-            <line x1="16" y1="2" x2="16" y2="6" />
-            <line x1="8" y1="2" x2="8" y2="6" />
-            <line x1="3" y1="10" x2="21" y2="10" />
-          </svg>
-          {calendarConnected ? "カレンダー連携済み ✓" : "Googleカレンダーを連携"}
-        </button>
-
-        {/* Profile */}
-        <Link
-          href={selectedGoalId ? `/profile?goalId=${selectedGoalId}` : "/profile"}
-          className="flex items-center gap-2 text-xs hover:opacity-70 transition-opacity"
-          style={{ color: "#888" }}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M3 3v18h18" />
-            <path d="M18 17V9" />
-            <path d="M13 17V5" />
-            <path d="M8 17v-3" />
-          </svg>
-          学習プロフィール
+      <div className="flex flex-col gap-2 border-t border-[var(--border)] px-4 py-3">
+        <Link href={selectedGoalId ? `/profile?goalId=${selectedGoalId}` : "/profile"} className="text-xs text-[var(--muted)] hover:text-[var(--text)]">
+          {t.profile}
         </Link>
       </div>
+
+      <div
+        onMouseDown={startResize}
+        className="absolute right-[-3px] top-0 h-full w-1 cursor-col-resize hover:bg-[var(--accent)]"
+      />
     </aside>
   );
 }

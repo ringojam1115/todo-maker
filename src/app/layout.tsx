@@ -1,19 +1,6 @@
 import type { Metadata } from "next";
-import { Manrope, JetBrains_Mono } from "next/font/google";
 import Script from "next/script";
 import "./globals.css";
-
-const manrope = Manrope({
-  variable: "--font-manrope",
-  subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-});
-
-const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-jetbrains-mono",
-  subsets: ["latin"],
-  weight: ["400", "500"],
-});
 
 export const metadata: Metadata = {
   title: "PLN — Goal-driven TODO",
@@ -28,11 +15,11 @@ export default function RootLayout({
   return (
     <html
       lang="ja"
-      className={`${manrope.variable} ${jetbrainsMono.variable} h-full`}
+      className="h-full"
     >
       <body
         className="h-full"
-        style={{ fontFamily: "var(--font-manrope), sans-serif" }}
+        style={{ fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif" }}
       >
         <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" />
         {children}

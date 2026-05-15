@@ -25,6 +25,9 @@ export interface Task {
   text: string
   completed: boolean
   estimatedMinutes: number
+  detail?: string
+  reflection?: string
+  artifact?: string
 }
 
 export interface DailyPlan {
@@ -45,6 +48,8 @@ export interface TaskFeedback {
   estimatedMinutes: number
   difficulty: 'easy' | 'just_right' | 'hard'
   materialName?: string
+  reflection?: string
+  artifact?: string
 }
 
 export interface DailyFeedback {
@@ -81,4 +86,16 @@ export interface SkillMemo {
   skills: string
   source: 'deleted' | 'completed'
   createdAt: string
+}
+
+export type LLMProvider = 'openai' | 'claude' | 'gemini'
+export type AppLanguage = 'ja' | 'en'
+
+export interface AppSettings {
+  provider: LLMProvider
+  apiKeys: Partial<Record<LLMProvider, string>>
+  language: AppLanguage
+  sidebarWidth: number
+  sidebarVisible: boolean
+  googleClientId?: string
 }

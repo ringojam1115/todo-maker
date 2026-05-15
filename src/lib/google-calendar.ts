@@ -4,9 +4,9 @@ const STUDY_START_HOUR = 7; // 7:00
 const STUDY_END_HOUR = 23; // 23:00
 const STUDY_DAY_MINUTES = (STUDY_END_HOUR - STUDY_START_HOUR) * 60; // 960 min
 
-export function requestGoogleCalendarToken(): Promise<string> {
+export function requestGoogleCalendarToken(clientIdOverride?: string): Promise<string> {
   return new Promise((resolve, reject) => {
-    const clientId = process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
+    const clientId = clientIdOverride || process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID;
     if (!clientId) {
       reject(new Error("NEXT_PUBLIC_GOOGLE_CLIENT_ID が設定されていません"));
       return;

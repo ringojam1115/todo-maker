@@ -1,63 +1,55 @@
 import { NextResponse } from "next/server";
-import { OPENAI_MODELS } from "@/constants/models";
+import type { LLMRequestSettings } from "@/lib/llm";
+import { callTextLLM, languageInstruction, parseJsonText } from "@/lib/llm";
 
 export async function POST(request: Request) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "OPENAI_API_KEY not set" }, { status: 500 });
-  }
-
   try {
-    const { materialName } = await request.json();
+    const { materialName, llm }: { materialName: string; llm?: LLMRequestSettings } = await request.json();
 
     const prompt = `
-「${materialName}」という教材・参考書について調べてください。
+「${materialName}」という教材・参考書について、以下のJSON形式で情報を返してください。
+${languageInstruction(llm?.language)}
 
-以下の情報をJSON形式で返してください。
-教材が実在しない・情報が不明な場合は found: false を返すこと。
+ルール:
+- 必ず found: true で回答すること
+- 正確な情報が不明な場合は、教材名・タイトルから内容・分野・難易度を合理的に推測して生成してよい
+- totalPagesが不明な場合は一般的な同種教材のページ数を推測して入れること
+- structureは章・Unit・Partなど実際にありそうな構成を推測して書くこと
 
 {
   "found": true,
-  "name": "正式な教材名",
+  "name": "教材名（入力名をそのまま使うか、正式名があれば正式名）",
   "totalPages": 300,
-  "structure": "Unit1: 基礎文法（p.1-50）、Unit2: リスニング（p.51-120）... のような章・ユニット構成",
-  "features": "この教材の特徴・学習対象者・難易度"
-}
-
-または
-
-{
-  "found": false
+  "structure": "第1章: ○○（p.1-50）、第2章: ○○（p.51-120）などの構成概要",
+  "features": "対象レベル・特徴・おすすめの使い方など"
 }
 
 JSONのみ返すこと。マークダウンや説明文は不要。
 `.trim();
 
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: OPENAI_MODELS.SEARCH,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => null);
-      const message = errJson?.error?.message ?? `OpenAI error ${res.status}`;
-      return NextResponse.json({ error: message }, { status: 500 });
-    }
-
-    const data = await res.json();
-    const text: string = data.choices[0].message.content;
-    const cleaned = text.replace(/```json\n?|```\n?/g, "").trim();
-    const parsed = JSON.parse(cleaned);
+    const text = await callTextLLM(prompt, llm);
+    console.log("[search-material] AI response:", text);
+    const parsed = parseJsonText(text);
 
     if (!parsed.found) {
       return NextResponse.json({ found: false });
+    }
+
+    // Fetch book cover from Google Books API (failure is non-fatal)
+    let imageUrl: string | undefined;
+    try {
+      const booksRes = await fetch(
+        `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(parsed.name)}&maxResults=1&langRestrict=ja`
+      );
+      if (booksRes.ok) {
+        const booksData = await booksRes.json();
+        const thumbnail = booksData.items?.[0]?.volumeInfo?.imageLinks?.thumbnail as string | undefined;
+        if (thumbnail) {
+          imageUrl = thumbnail.replace("http://", "https://");
+        }
+      }
+    } catch {
+      // cover fetch failure is non-fatal
     }
 
     return NextResponse.json({
@@ -69,10 +61,12 @@ JSONのみ返すこと。マークダウンや説明文は不要。
         totalPages: parsed.totalPages,
         features: parsed.features,
         source: "search" as const,
+        imageUrl,
       },
     });
   } catch (e) {
-    console.error("[search-material] error:", e);
-    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+    const message = e instanceof Error ? e.message : String(e);
+    console.error("[search-material] error:", message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

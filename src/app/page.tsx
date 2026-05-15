@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { v4 as uuidv4 } from "uuid";
 import type { Goal, DailyPlan, DailyPlansStore, SkillMemo } from "@/types";
+import type { AppSettings, Task } from "@/types";
 import {
   loadGoals,
   saveGoals,
@@ -15,6 +16,7 @@ import {
   loadSkillMemos,
   saveSkillMemos,
 } from "@/lib/storage";
+import { DEFAULT_SETTINGS, loadSettings, saveSettings } from "@/lib/settings";
 import type { CalendarSlots } from "@/lib/google-calendar";
 import { requestGoogleCalendarToken, getCalendarFreeSlots } from "@/lib/google-calendar";
 import LeftSidebar from "@/components/LeftSidebar";
@@ -23,6 +25,7 @@ import RightTimeline from "@/components/RightTimeline";
 import GoalModal from "@/components/GoalModal";
 import GoalEditModal from "@/components/GoalEditModal";
 import GoalDeleteModal from "@/components/GoalDeleteModal";
+import SettingsModal from "@/components/SettingsModal";
 
 interface Tab {
   date: string;
@@ -37,7 +40,10 @@ export default function Home() {
   const [selectedGoalId, setSelectedGoalId] = useState<string | null>(null);
   const [openTabs, setOpenTabs] = useState<Tab[]>([{ date: today, label: "今日" }]);
   const [activeDate, setActiveDate] = useState<string>(today);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showGoalModal, setShowGoalModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
   const [generatingTodos, setGeneratingTodos] = useState(false);
   const [updatingTodos, setUpdatingTodos] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -51,13 +57,51 @@ export default function Home() {
   const [calendarConnected, setCalendarConnected] = useState(false);
   const [calendarSlots, setCalendarSlots] = useState<CalendarSlots>({});
 
+  // Learning Tips state
+  const [tips, setTips] = useState<string[]>([]);
+  const [recommendations, setRecommendations] = useState<{ name: string; reason: string }[]>([]);
+  const [tipsLoading, setTipsLoading] = useState(false);
+
   useEffect(() => {
     setGoals(loadGoals());
     setPlans(loadPlans());
+    setSettings(loadSettings());
   }, []);
 
   const selectedGoal = goals.find((g) => g.id === selectedGoalId) ?? null;
   const editingGoal = editingGoalId ? goals.find((g) => g.id === editingGoalId) ?? null : null;
+
+  // Fetch learning tips when selected goal changes
+  useEffect(() => {
+    if (!selectedGoal) {
+      setTips([]);
+      setRecommendations([]);
+      return;
+    }
+
+    const goalPlans = Object.entries(plans)
+      .filter(([k]) => k.startsWith(`${selectedGoal.id}_`))
+      .map(([, v]) => v);
+
+    if (goalPlans.length === 0) return;
+
+    setTipsLoading(true);
+    const profiles = loadProfiles();
+    const profile = profiles[selectedGoal.id] ?? null;
+
+    fetch("/api/learning-tips", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ goal: selectedGoal, plans: goalPlans, profile, today, llm: getLLMPayload() }),
+    })
+      .then((r) => r.json())
+      .then((data) => {
+        setTips(data.tips ?? []);
+        setRecommendations(data.recommendations ?? []);
+      })
+      .catch(() => {})
+      .finally(() => setTipsLoading(false));
+  }, [selectedGoalId, settings.provider, settings.language]); // eslint-disable-line react-hooks/exhaustive-deps
   const deletingGoal = deletingGoalId ? goals.find((g) => g.id === deletingGoalId) ?? null : null;
 
   useEffect(() => {
@@ -78,6 +122,7 @@ export default function Home() {
     (goalId: string) => {
       setSelectedGoalId(goalId);
       setOpenTabs([{ date: today, label: "今日" }]);
+      setSelectedDate(null);
       setActiveDate(today);
     },
     [today]
@@ -89,27 +134,49 @@ export default function Home() {
 
   const handleTabClose = useCallback(
     (date: string) => {
-      setOpenTabs((prev) => {
-        const next = prev.filter((t) => t.date !== date);
-        return next.length === 0 ? [{ date: today, label: "今日" }] : next;
-      });
+      setSelectedDate((prev) => (prev === date ? null : prev));
+      setOpenTabs([{ date: today, label: "今日" }]);
       setActiveDate((prev) => (prev === date ? today : prev));
     },
     [today]
   );
 
   const handleSelectDate = useCallback((date: string) => {
-    setOpenTabs((prev) => {
-      if (prev.find((t) => t.date === date)) return prev;
-      return [...prev, { date, label: date }];
-    });
+    setSelectedDate(date === today ? null : date);
+    setOpenTabs(date === today ? [{ date: today, label: "今日" }] : [{ date: today, label: "今日" }, { date, label: date }]);
     setActiveDate(date);
+  }, [today]);
+
+  const getLLMPayload = useCallback(() => ({
+    provider: settings.provider,
+    apiKey: settings.apiKeys[settings.provider],
+    language: settings.language,
+  }), [settings]);
+
+  const handleSettingsSave = useCallback((next: AppSettings) => {
+    setSettings(next);
+    saveSettings(next);
+  }, []);
+
+  const handleSidebarWidthChange = useCallback((width: number) => {
+    setSettings((prev) => {
+      const next = { ...prev, sidebarWidth: width };
+      saveSettings(next);
+      return next;
+    });
+  }, []);
+
+  const handleSidebarVisibleChange = useCallback((visible: boolean) => {
+    setSettings((prev) => {
+      const next = { ...prev, sidebarVisible: visible };
+      saveSettings(next);
+      return next;
+    });
   }, []);
 
   const handleToggleTask = useCallback(
-    (date: string, taskId: string) => {
-      if (!selectedGoalId) return;
-      const key = `${selectedGoalId}_${date}`;
+    (goalId: string, date: string, taskId: string) => {
+      const key = `${goalId}_${date}`;
       setPlans((prev) => {
         const plan = prev[key];
         if (!plan) return prev;
@@ -124,7 +191,7 @@ export default function Home() {
         return next;
       });
     },
-    [selectedGoalId]
+    []
   );
 
   const handleNoteChange = useCallback(
@@ -177,6 +244,7 @@ export default function Home() {
             materials: newGoal.materials,
             calendarSlots: Object.keys(calendarSlots).length > 0 ? calendarSlots : undefined,
             otherGoals: otherGoals.length > 0 ? otherGoals : undefined,
+            llm: getLLMPayload(),
           }),
         });
 
@@ -184,7 +252,7 @@ export default function Home() {
 
         const dailyPlan: Array<{
           date: string;
-          tasks: Array<{ id: string; text: string; estimatedMinutes: number }>;
+          tasks: Array<{ id: string; text: string; estimatedMinutes: number; detail?: string }>;
           focus: string;
         }> = await res.json();
 
@@ -198,6 +266,7 @@ export default function Home() {
               text: task.text,
               completed: false,
               estimatedMinutes: task.estimatedMinutes || 0,
+              detail: task.detail,
             })),
             note: "",
             focus: day.focus,
@@ -216,6 +285,7 @@ export default function Home() {
         });
         setSelectedGoalId(newGoal.id);
         setOpenTabs([{ date: today, label: "今日" }]);
+        setSelectedDate(null);
         setActiveDate(today);
         setShowGoalModal(false);
       } catch (e) {
@@ -224,7 +294,7 @@ export default function Home() {
         setGeneratingTodos(false);
       }
     },
-    [today, goals, calendarSlots]
+    [today, goals, calendarSlots, getLLMPayload]
   );
 
   const handleEditGoal = useCallback((goalId: string) => {
@@ -269,6 +339,7 @@ export default function Home() {
               materials: updatedGoal.materials,
               calendarSlots: Object.keys(calendarSlots).length > 0 ? calendarSlots : undefined,
               otherGoals: otherGoals.length > 0 ? otherGoals : undefined,
+              llm: getLLMPayload(),
             }),
           });
 
@@ -276,7 +347,7 @@ export default function Home() {
 
           const dailyPlan: Array<{
             date: string;
-            tasks: Array<{ id: string; text: string; estimatedMinutes: number }>;
+            tasks: Array<{ id: string; text: string; estimatedMinutes: number; detail?: string }>;
             focus: string;
           }> = await res.json();
 
@@ -298,6 +369,7 @@ export default function Home() {
                   text: task.text,
                   completed: false,
                   estimatedMinutes: task.estimatedMinutes || 0,
+                  detail: task.detail,
                 })),
                 note: prev[key]?.note ?? "",
                 focus: day.focus,
@@ -315,7 +387,7 @@ export default function Home() {
         setSavingGoal(false);
       }
     },
-    [today, goals, calendarSlots]
+    [today, goals, calendarSlots, getLLMPayload]
   );
 
   const handleDeleteGoal = useCallback((goalId: string) => {
@@ -370,6 +442,7 @@ export default function Home() {
       if (selectedGoalId === deletingGoalId) {
         setSelectedGoalId(null);
         setOpenTabs([{ date: today, label: "今日" }]);
+        setSelectedDate(null);
         setActiveDate(today);
       }
 
@@ -378,17 +451,18 @@ export default function Home() {
     [deletingGoalId, goals, selectedGoalId, today]
   );
 
-  const handleConnectCalendar = useCallback(async () => {
+  const handleConnectCalendar = useCallback(async (settingsOverride?: AppSettings) => {
     if (calendarConnected) return;
+    const activeSettings = settingsOverride ?? settings;
     try {
-      const token = await requestGoogleCalendarToken();
+      const token = await requestGoogleCalendarToken(activeSettings.googleClientId);
       const slots = await getCalendarFreeSlots(token);
       setCalendarSlots(slots);
       setCalendarConnected(true);
     } catch {
       setError("Googleカレンダーの連携に失敗しました");
     }
-  }, [calendarConnected]);
+  }, [calendarConnected, settings]);
 
   const handleUpdateTodos = useCallback(
     async (date: string) => {
@@ -437,6 +511,7 @@ export default function Home() {
             completedTasks,
             remainingDays,
             currentPlan,
+            llm: getLLMPayload(),
           }),
         });
 
@@ -470,7 +545,7 @@ export default function Home() {
         setUpdatingTodos(false);
       }
     },
-    [selectedGoal, plans]
+    [selectedGoal, plans, getLLMPayload]
   );
 
   const handleFeedbackSubmit = useCallback((updatedPlans: DailyPlansStore) => {
@@ -480,6 +555,26 @@ export default function Home() {
       return next;
     });
   }, []);
+
+  const handleTaskMetaChange = useCallback(
+    (goalId: string, date: string, taskId: string, patch: Pick<Task, "reflection" | "artifact">) => {
+      const key = `${goalId}_${date}`;
+      setPlans((prev) => {
+        const plan = prev[key];
+        if (!plan) return prev;
+        const next = {
+          ...prev,
+          [key]: {
+            ...plan,
+            tasks: plan.tasks.map((task) => (task.id === taskId ? { ...task, ...patch } : task)),
+          },
+        };
+        savePlans(next);
+        return next;
+      });
+    },
+    []
+  );
 
   // Collect plans and feedbacks for the delete modal
   const deletingGoalPlans = useMemo(
@@ -498,38 +593,63 @@ export default function Home() {
   );
 
   return (
-    <div className="flex h-screen overflow-hidden" style={{ background: "#f2f2ef" }}>
-      <LeftSidebar
-        goals={goals}
-        selectedGoalId={selectedGoalId}
-        plans={plans}
-        onSelectGoal={handleSelectGoal}
-        onAddGoal={() => setShowGoalModal(true)}
-        onEditGoal={handleEditGoal}
-        onDeleteGoal={handleDeleteGoal}
-        calendarConnected={calendarConnected}
-        onConnectCalendar={handleConnectCalendar}
-      />
+    <div className="flex h-screen overflow-hidden bg-[var(--bg)]">
+      {settings.sidebarVisible ? (
+        <LeftSidebar
+          goals={goals}
+          selectedGoalId={selectedGoalId}
+          plans={plans}
+          width={settings.sidebarWidth}
+          language={settings.language}
+          onWidthChange={handleSidebarWidthChange}
+          onSelectGoal={handleSelectGoal}
+          onAddGoal={() => setShowGoalModal(true)}
+          onEditGoal={handleEditGoal}
+          onDeleteGoal={handleDeleteGoal}
+          onHideSidebar={() => handleSidebarVisibleChange(false)}
+          onOpenSettings={() => setShowSettingsModal(true)}
+          tips={tips}
+          recommendations={recommendations}
+          tipsLoading={tipsLoading}
+        />
+      ) : (
+        <div className="flex w-12 min-w-12 flex-col items-center border-r border-[var(--border)] bg-[var(--panel)] py-3">
+          <button
+            onClick={() => handleSidebarVisibleChange(true)}
+            className="grid h-8 w-8 place-items-center rounded-md border border-[var(--border)] bg-white text-sm text-[var(--text)]"
+            title={settings.language === "ja" ? "サイドバーを表示" : "Show sidebar"}
+          >
+            pl
+          </button>
+          <button
+            onClick={() => setShowSettingsModal(true)}
+            className="mt-3 grid h-8 w-8 place-items-center rounded-md border border-[var(--border)] bg-white text-sm text-[var(--muted)]"
+            title={settings.language === "ja" ? "設定" : "Settings"}
+          >
+            ⚙
+          </button>
+        </div>
+      )}
 
       <CenterPanel
-        goal={selectedGoal}
+        goals={goals}
         plans={plans}
-        openTabs={openTabs}
         activeDate={activeDate}
+        selectedDate={selectedDate}
+        language={settings.language}
         onTabSelect={handleTabSelect}
         onTabClose={handleTabClose}
         onToggleTask={handleToggleTask}
-        onNoteChange={handleNoteChange}
-        onUpdateTodos={handleUpdateTodos}
-        updatingTodos={updatingTodos}
+        onTaskMetaChange={handleTaskMetaChange}
         onFeedbackSubmit={handleFeedbackSubmit}
-        allGoals={goals}
+        llmPayload={getLLMPayload}
       />
 
       <RightTimeline
-        goal={selectedGoal}
+        goals={goals}
         plans={plans}
         activeDate={activeDate}
+        language={settings.language}
         onSelectDate={handleSelectDate}
       />
 
@@ -539,6 +659,16 @@ export default function Home() {
           onCreate={handleCreateGoal}
           loading={generatingTodos}
           activeGoals={goals}
+        />
+      )}
+
+      {showSettingsModal && (
+        <SettingsModal
+          settings={settings}
+          calendarConnected={calendarConnected}
+          onConnectCalendar={handleConnectCalendar}
+          onSave={handleSettingsSave}
+          onClose={() => setShowSettingsModal(false)}
         />
       )}
 

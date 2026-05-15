@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import type { Goal, DailyPlan, DailyFeedback } from "@/types";
+import { loadSettings } from "@/lib/settings";
 
 interface GoalDeleteModalProps {
   goal: Goal;
@@ -24,21 +25,37 @@ export default function GoalDeleteModal({
 
   const allTasks = plans.flatMap((p) => p.tasks);
   const hasTasks = allTasks.length > 0;
+  const completedFeedbackTasks = feedbacks.flatMap((feedback) =>
+    feedback.taskFeedbacks.filter((task) => task.completed && task.completionRate > 0)
+  );
+  const canCreateSkillMemo = completedFeedbackTasks.length > 0;
 
   useEffect(() => {
-    if (!hasTasks) return;
+    if (!canCreateSkillMemo) return;
     setExtracting(true);
     fetch("/api/extract-skills", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ goal, plans, feedbacks }),
+      body: JSON.stringify({
+        goal,
+        plans,
+        feedbacks,
+        llm: (() => {
+          const settings = loadSettings();
+          return {
+            provider: settings.provider,
+            apiKey: settings.apiKeys[settings.provider],
+            language: settings.language,
+          };
+        })(),
+      }),
     })
       .then((r) => r.json())
       .then((data) => {
         setSkillMemo(data.skills ?? "");
-        setShowSkill(true);
+        setShowSkill(Boolean(data.skills));
       })
-      .catch(() => setShowSkill(true))
+      .catch(() => setShowSkill(false))
       .finally(() => setExtracting(false));
   }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -81,10 +98,11 @@ export default function GoalDeleteModal({
             <>
               <div
                 className="rounded-lg p-3 text-xs"
-                style={{ background: "#f0f7e8", border: "1px solid #c3e0a0", color: "#444" }}
+                style={{ background: canCreateSkillMemo ? "#f0f7e8" : "#f7f7f4", border: "1px solid #e0e0da", color: "#444" }}
               >
-                {allTasks.length}件のタスク記録が見つかりました。
-                削除前に学習内容をスキルメモに保存できます。
+                {canCreateSkillMemo
+                  ? `${completedFeedbackTasks.length}件の完了フィードバックからスキルメモを作成できます。`
+                  : "完了済みのフィードバックがないため、スキルメモは作成されません。"}
               </div>
 
               {extracting && (
@@ -97,7 +115,7 @@ export default function GoalDeleteModal({
                 </div>
               )}
 
-              {showSkill && (
+              {showSkill && canCreateSkillMemo && (
                 <div className="flex flex-col gap-2">
                   <label className="text-xs font-medium" style={{ color: "#666" }}>
                     スキルメモ（編集可能・削除後もプロフィールに残ります）

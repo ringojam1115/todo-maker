@@ -1,13 +1,9 @@
 import { NextResponse } from "next/server";
-import { OPENAI_MODELS } from "@/constants/models";
 import type { Goal, TaskFeedback, DailyPlan, LearningProfile, MaterialAffinity } from "@/types";
+import type { LLMRequestSettings } from "@/lib/llm";
+import { callTextLLM, languageInstruction, parseJsonText } from "@/lib/llm";
 
 export async function POST(request: Request) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "OPENAI_API_KEY not set" }, { status: 500 });
-  }
-
   try {
     const {
       goal,
@@ -19,6 +15,7 @@ export async function POST(request: Request) {
       currentPlans,
       profile,
       otherGoals,
+      llm,
     }: {
       goal: Goal;
       date: string;
@@ -29,6 +26,7 @@ export async function POST(request: Request) {
       currentPlans: DailyPlan[];
       profile: LearningProfile;
       otherGoals?: Array<{ title: string; dailyMinutes: number; remainingDays: number }>;
+      llm?: LLMRequestSettings;
     } = await request.json();
 
     // --- Profile update (server-side) ---
@@ -95,6 +93,7 @@ export async function POST(request: Request) {
 あなたは学習コーチです。
 ユーザーの今日のフィードバックを分析し、
 明日以降のTODOプランを最適化してください。
+${languageInstruction(llm?.language)}
 
 ## 目標
 ${goal.title}（残り${remainingDays}日）
@@ -143,6 +142,7 @@ ${otherGoals
 - コンディションが低い日が続く場合は全体のタスク量を減らす
 - 達成率が高く「簡単」と評価した場合は難易度を上げるかタスク量を増やす
 - 未完了タスクは翌日以降に組み込む
+- 今後7日分は毎日、2ヶ月分は週ごと、それ以降は月ごとの粒度を保つ
 
 ## 現在の翌日以降のプラン
 ${JSON.stringify(currentPlans, null, 2)}
@@ -166,28 +166,8 @@ ${JSON.stringify(currentPlans, null, 2)}
 }
 `.trim();
 
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: OPENAI_MODELS.MAIN,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => null);
-      const message = errJson?.error?.message ?? `OpenAI error ${res.status}`;
-      return NextResponse.json({ error: message }, { status: 500 });
-    }
-
-    const data = await res.json();
-    const text: string = data.choices[0].message.content;
-    const cleaned = text.replace(/```json\n?|```\n?/g, "").trim();
-    const parsed = JSON.parse(cleaned);
+    const text = await callTextLLM(prompt, llm);
+    const parsed = parseJsonText(text);
 
     return NextResponse.json({
       updatedPlans: parsed.updatedPlans,

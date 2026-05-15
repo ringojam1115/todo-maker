@@ -3,6 +3,7 @@
 import { useState, useRef } from "react";
 import { v4 as uuidv4 } from "uuid";
 import type { Goal, Material } from "@/types";
+import { loadSettings } from "@/lib/settings";
 
 type MaterialSearchState =
   | "idle"
@@ -34,6 +35,15 @@ const inputStyle = {
   fontFamily: "var(--font-manrope), sans-serif",
 };
 
+function llmPayload() {
+  const settings = loadSettings();
+  return {
+    provider: settings.provider,
+    apiKey: settings.apiKeys[settings.provider],
+    language: settings.language,
+  };
+}
+
 export default function GoalModal({ onClose, onCreate, loading, activeGoals = [] }: GoalModalProps) {
   const today = new Date().toISOString().split("T")[0];
 
@@ -64,7 +74,7 @@ export default function GoalModal({ onClose, onCreate, loading, activeGoals = []
       const res = await fetch("/api/search-material", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ materialName: searchQuery }),
+        body: JSON.stringify({ materialName: searchQuery, llm: llmPayload() }),
       });
       const data = await res.json();
       if (data.found && data.material) {
@@ -89,7 +99,7 @@ export default function GoalModal({ onClose, onCreate, loading, activeGoals = []
         const res = await fetch("/api/analyze-material", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ imageBase64: base64, mediaType: file.type, materialName: searchQuery }),
+          body: JSON.stringify({ imageBase64: base64, mediaType: file.type, materialName: searchQuery, llm: llmPayload() }),
         });
         const data = await res.json();
         setAnalyzedMaterial(data);

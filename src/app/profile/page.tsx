@@ -14,6 +14,7 @@ import {
 } from "recharts";
 import type { LearningProfile, DailyFeedback, SkillMemo } from "@/types";
 import { loadFeedbacks, loadProfiles, loadSkillMemos } from "@/lib/storage";
+import { loadSettings } from "@/lib/settings";
 
 function ProfileContent() {
   const searchParams = useSearchParams();
@@ -41,10 +42,18 @@ function ProfileContent() {
   useEffect(() => {
     if (!profile) return;
     setLoadingComment(true);
+    const settings = loadSettings();
     fetch("/api/learning-comment", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profile }),
+      body: JSON.stringify({
+        profile,
+        llm: {
+          provider: settings.provider,
+          apiKey: settings.apiKeys[settings.provider],
+          language: settings.language,
+        },
+      }),
     })
       .then((r) => r.json())
       .then((data) => setAiComment(data.comment ?? ""))

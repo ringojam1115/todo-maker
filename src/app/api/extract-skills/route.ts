@@ -1,27 +1,35 @@
 import { NextResponse } from "next/server";
-import { OPENAI_MODELS } from "@/constants/models";
 import type { Goal, DailyPlan, DailyFeedback } from "@/types";
+import type { LLMRequestSettings } from "@/lib/llm";
+import { callTextLLM, languageInstruction } from "@/lib/llm";
 
 export async function POST(request: Request) {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "OPENAI_API_KEY not set" }, { status: 500 });
-  }
-
   try {
     const {
       goal,
       plans,
       feedbacks,
-    }: { goal: Goal; plans: DailyPlan[]; feedbacks: DailyFeedback[] } =
+      llm,
+    }: { goal: Goal; plans: DailyPlan[]; feedbacks: DailyFeedback[]; llm?: LLMRequestSettings } =
       await request.json();
 
-    const completedTasks = plans
-      .flatMap((p) => p.tasks)
-      .filter((t) => t.completed)
-      .map((t) => `・${t.text}`);
+    const completedFeedbackTasks = feedbacks.flatMap((feedback) =>
+      feedback.taskFeedbacks
+        .filter((task) => task.completed && task.completionRate > 0)
+        .map((task) => ({
+          date: feedback.date,
+          text: task.taskText,
+          completionRate: task.completionRate,
+          actualMinutes: task.actualMinutes,
+          difficulty: task.difficulty,
+          reflection: task.reflection,
+          artifact: task.artifact,
+        }))
+    );
 
-    const allTasks = plans.flatMap((p) => p.tasks).map((t) => `・${t.text}`);
+    if (completedFeedbackTasks.length === 0) {
+      return NextResponse.json({ skills: "" });
+    }
 
     const feedbackSummary = feedbacks
       .map((f) => {
@@ -43,43 +51,31 @@ export async function POST(request: Request) {
 - 現在のレベル（開始時）: ${goal.currentLevel || "未設定"}
 - 使用教材: ${goal.materials.map((m) => m.name).join("、") || "なし"}
 
-## 取り組んだタスク（全${allTasks.length}件）
-${allTasks.slice(0, 30).join("\n") || "なし"}
-
-## 完了したタスク（${completedTasks.length}件）
-${completedTasks.slice(0, 20).join("\n") || "なし"}
+## フィードバック付きの完了タスク（${completedFeedbackTasks.length}件）
+${completedFeedbackTasks
+  .slice(0, 30)
+  .map(
+    (task) => `・${task.date}: ${task.text}
+  達成度: ${task.completionRate}%
+  実績時間: ${task.actualMinutes}分
+  難易度: ${task.difficulty}
+  メモ: ${task.reflection || "なし"}
+  成果物: ${task.artifact || "なし"}`
+  )
+  .join("\n")}
 
 ## 学習記録
 ${feedbackSummary || "記録なし"}
 
 ## 出力形式
-習得・練習したスキルや知識を200〜300字程度でまとめてください。
+完了タスクとフィードバックから読み取れる範囲だけで、習得・練習したスキルや知識を200〜300字程度でまとめてください。
+未完了のこと、未確認の成果、達成していない能力を達成済みのように書かないでください。
 箇条書きを活用し、具体的に記述してください。
 日本語で。
+${languageInstruction(llm?.language)}
 `.trim();
 
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
-      body: JSON.stringify({
-        model: OPENAI_MODELS.MAIN,
-        messages: [{ role: "user", content: prompt }],
-      }),
-    });
-
-    if (!res.ok) {
-      const errJson = await res.json().catch(() => null);
-      return NextResponse.json(
-        { error: errJson?.error?.message ?? `OpenAI error ${res.status}` },
-        { status: 500 }
-      );
-    }
-
-    const data = await res.json();
-    const skills: string = data.choices[0].message.content;
+    const skills = await callTextLLM(prompt, llm);
 
     return NextResponse.json({ skills });
   } catch (e) {

@@ -1,126 +1,117 @@
 "use client";
 
-import type { Goal, DailyPlansStore } from "@/types";
+import type { AppLanguage, DailyPlansStore, Goal } from "@/types";
+import { UI_TEXT } from "@/lib/settings";
 
 interface RightTimelineProps {
-  goal: Goal | null;
+  goals: Goal[];
   plans: DailyPlansStore;
   activeDate: string;
+  language: AppLanguage;
   onSelectDate: (date: string) => void;
 }
 
-function getDates(goal: Goal): string[] {
-  const dates: string[] = [];
-  const d = new Date(goal.createdAt.split("T")[0] + "T00:00:00");
-  const end = new Date(goal.deadline + "T00:00:00");
-  while (d <= end) {
-    dates.push(d.toISOString().split("T")[0]);
-    d.setDate(d.getDate() + 1);
-  }
-  return dates;
+function uniqueDates(plans: DailyPlansStore): string[] {
+  return [...new Set(Object.values(plans).map((plan) => plan.date))].sort((a, b) => a.localeCompare(b));
 }
 
-function groupByWeek(dates: string[]): Array<{ label: string; dates: string[] }> {
-  const weeks: Array<{ label: string; dates: string[] }> = [];
-  let current: { label: string; dates: string[] } | null = null;
-
-  for (const date of dates) {
-    const d = new Date(date + "T00:00:00");
-    const day = d.getDay();
-    const weekStart = new Date(d);
-    weekStart.setDate(d.getDate() - day);
-    const label = weekStart.toLocaleDateString("ja-JP", { month: "short", day: "numeric" });
-
-    if (!current || current.label !== label) {
-      current = { label: `${label}の週`, dates: [] };
-      weeks.push(current);
-    }
-    current.dates.push(date);
-  }
-
-  return weeks;
+function itemsForDate(goals: Goal[], plans: DailyPlansStore, date: string) {
+  return goals.flatMap((goal) => {
+    const plan = plans[`${goal.id}_${date}`];
+    return plan ? [{ goal, plan }] : [];
+  });
 }
 
-function formatDate(date: string): string {
+function formatDate(date: string, language: AppLanguage): string {
+  return new Date(date + "T00:00:00").toLocaleDateString(language === "ja" ? "ja-JP" : "en-US", {
+    month: "numeric",
+    day: "numeric",
+    weekday: "short",
+  });
+}
+
+function rangeLabel(date: string, language: AppLanguage): string {
   const d = new Date(date + "T00:00:00");
-  return d.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric", weekday: "short" });
+  const end = new Date(d);
+  end.setDate(end.getDate() + 6);
+  const locale = language === "ja" ? "ja-JP" : "en-US";
+  return `${d.toLocaleDateString(locale, { month: "numeric", day: "numeric" })}-${end.toLocaleDateString(locale, { month: "numeric", day: "numeric" })}`;
 }
 
-export default function RightTimeline({
-  goal,
-  plans,
-  activeDate,
-  onSelectDate,
-}: RightTimelineProps) {
+export default function RightTimeline({ goals, plans, activeDate, language, onSelectDate }: RightTimelineProps) {
+  const t = UI_TEXT[language];
   const today = new Date().toISOString().split("T")[0];
-
-  if (!goal) {
-    return (
-      <aside
-        className="flex flex-col h-full items-center justify-center"
-        style={{ width: 200, minWidth: 200, borderLeft: "1px solid #e0e0da", background: "#f2f2ef" }}
-      >
-        <p className="text-xs" style={{ color: "#aaa" }}>
-          ゴールを選択
-        </p>
-      </aside>
-    );
-  }
-
-  const dates = getDates(goal);
-  const weeks = groupByWeek(dates);
+  const dates = uniqueDates(plans);
+  const nextSeven = dates.filter((date) => date <= new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split("T")[0]);
+  const later = dates.filter((date) => !nextSeven.includes(date));
 
   return (
-    <aside
-      className="flex flex-col h-full overflow-hidden"
-      style={{ width: 200, minWidth: 200, borderLeft: "1px solid #e0e0da", background: "#f2f2ef" }}
-    >
-      <div
-        className="px-4 py-3 text-xs font-semibold"
-        style={{ borderBottom: "1px solid #e0e0da", color: "#666" }}
-      >
-        タイムライン
+    <aside className="hidden h-full w-[220px] min-w-[220px] flex-col border-l border-[var(--border)] bg-[var(--panel)] lg:flex">
+      <div className="border-b border-[var(--border)] px-4 py-4">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--muted-2)]">{t.timeline}</p>
       </div>
-      <div className="flex-1 overflow-y-auto py-2">
-        {weeks.map((week, i) => (
-          <div key={i} className="mb-1">
-            <div className="px-4 py-1.5 text-xs font-semibold" style={{ color: "#aaa" }}>
-              {week.label}
-            </div>
-            {week.dates.map((date) => {
-              const key = `${goal.id}_${date}`;
-              const hasTasks = (plans[key]?.tasks?.length ?? 0) > 0;
-              const isToday = date === today;
-              const isActive = date === activeDate;
 
-              return (
-                <button
-                  key={date}
-                  onClick={() => onSelectDate(date)}
-                  className="w-full flex items-center gap-2 px-4 py-1.5 text-left transition-colors hover:bg-black/5"
-                  style={{
-                    background: isActive ? "rgba(92,158,46,0.1)" : "transparent",
-                  }}
-                >
-                  <span
-                    className="w-2 h-2 rounded-full flex-shrink-0"
-                    style={{ background: hasTasks ? "#5c9e2e" : "#ccc" }}
-                  />
-                  <span
-                    className="text-xs"
-                    style={{
-                      color: isToday ? "#5c9e2e" : isActive ? "#1a1a1a" : "#555",
-                      fontWeight: isToday ? 700 : isActive ? 600 : 400,
-                      fontFamily: "var(--font-jetbrains-mono), monospace",
-                    }}
+      <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        {dates.length === 0 ? (
+          <p className="px-1 py-6 text-xs text-[var(--muted)]">{language === "ja" ? "TODOがありません" : "No TODOs yet"}</p>
+        ) : (
+          <>
+            <div className="mb-4 flex flex-col gap-1">
+              {nextSeven.map((date) => {
+                const entries = itemsForDate(goals, plans, date);
+                const total = entries.reduce((sum, entry) => sum + entry.plan.tasks.length, 0);
+                const done = entries.reduce((sum, entry) => sum + entry.plan.tasks.filter((task) => task.completed).length, 0);
+                const active = date === activeDate;
+                return (
+                  <button
+                    key={date}
+                    onClick={() => onSelectDate(date)}
+                    className="flex items-center gap-2 rounded-md px-2 py-2 text-left hover:bg-white"
+                    style={{ background: active ? "#fff" : "transparent" }}
                   >
-                    {formatDate(date)}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        ))}
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ background: date === today ? "var(--accent)" : "var(--muted-2)" }} />
+                    <span className="min-w-0 flex-1 text-xs font-medium text-[var(--text)]">{date === today ? t.today : formatDate(date, language)}</span>
+                    <span className="text-[10px] text-[var(--muted)]">{done}/{total}</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex flex-col gap-3">
+              {later.map((date) => {
+                const entries = itemsForDate(goals, plans, date);
+                const total = entries.reduce((sum, entry) => sum + entry.plan.tasks.length, 0);
+                const done = entries.reduce((sum, entry) => sum + entry.plan.tasks.filter((task) => task.completed).length, 0);
+                const active = date === activeDate;
+                return (
+                  <button
+                    key={date}
+                    onClick={() => onSelectDate(date)}
+                    className="rounded-lg border border-[var(--border)] bg-white px-3 py-3 text-left"
+                    style={{ boxShadow: active ? "inset 0 0 0 1px var(--accent)" : "none" }}
+                  >
+                    <div className="mb-2 flex items-center justify-between">
+                      <span className="text-xs font-semibold text-[var(--text)]">{rangeLabel(date, language)}</span>
+                      <span className="rounded-full bg-[var(--panel)] px-2 py-0.5 text-[10px] text-[var(--muted)]">{total}</span>
+                    </div>
+                    <div className="mb-2 h-2 overflow-hidden rounded-full bg-[var(--panel)]">
+                      <div className="h-full rounded-full bg-[var(--accent)]" style={{ width: total === 0 ? "0%" : `${Math.round((done / total) * 100)}%` }} />
+                    </div>
+                    <div className="flex gap-1">
+                      {entries.slice(0, 6).map((entry, index) => (
+                        <span
+                          key={entry.goal.id}
+                          className="h-1.5 flex-1 rounded-full"
+                          style={{ background: index % 2 === 0 ? "var(--accent)" : "var(--accent-2)", opacity: 0.55 }}
+                        />
+                      ))}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
     </aside>
   );

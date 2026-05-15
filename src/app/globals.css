@@ -1,11 +1,17 @@
 @import "tailwindcss";
 
 :root {
-  --bg: #f2f2ef;
-  --accent: #5c9e2e;
-  --border: #e0e0da;
-  --text: #1a1a1a;
-  --text-muted: #888;
+  --bg: #f7f7f4;
+  --panel: #fbfbf8;
+  --panel-strong: #ffffff;
+  --accent: #5f8f3b;
+  --accent-2: #5279ad;
+  --accent-soft: #eef4e8;
+  --border: #e6e4de;
+  --border-strong: #d7d5ce;
+  --text: #20201e;
+  --muted: #8c8a84;
+  --muted-2: #b6b3aa;
 }
 
 * {
@@ -20,8 +26,23 @@ body {
   padding: 0;
 }
 
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
 code, pre, .mono {
-  font-family: 'JetBrains Mono', monospace;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
 }
 
 ::-webkit-scrollbar {
