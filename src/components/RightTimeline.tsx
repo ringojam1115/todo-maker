@@ -12,7 +12,6 @@ interface RightTimelineProps {
   language: AppLanguage;
   width: number;
   onWidthChange: (width: number) => void;
-  onHideSidebar: () => void;
   onSelectDate: (date: string) => void;
 }
 
@@ -139,7 +138,6 @@ export default function RightTimeline({
   language,
   width,
   onWidthChange,
-  onHideSidebar,
   onSelectDate,
 }: RightTimelineProps) {
   const t = UI_TEXT[language];
@@ -174,16 +172,8 @@ export default function RightTimeline({
         className="absolute left-[-3px] top-0 h-full w-1 cursor-col-resize hover:bg-[var(--accent)]"
       />
 
-      <div className="flex items-center justify-between border-b border-[var(--border)] px-4 py-4">
+      <div className="border-b border-[var(--border)] px-4 py-4">
         <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--muted-2)]">{t.timeline}</p>
-        <button
-          onClick={onHideSidebar}
-          className="grid h-6 w-6 place-items-center rounded-md border border-[var(--border)] bg-white text-[11px] text-[var(--muted)] hover:text-[var(--text)]"
-          title={language === "ja" ? "タイムラインを閉じる" : "Hide timeline"}
-          aria-label={language === "ja" ? "タイムラインを閉じる" : "Hide timeline"}
-        >
-          ›
-        </button>
       </div>
 
       {goals.length > 0 && (

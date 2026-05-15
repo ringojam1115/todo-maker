@@ -173,14 +173,6 @@ export default function Home() {
     });
   }, []);
 
-  const handleRightSidebarVisibleChange = useCallback((visible: boolean) => {
-    setSettings((prev) => {
-      const next = { ...prev, rightSidebarVisible: visible };
-      saveSettings(next);
-      return next;
-    });
-  }, []);
-
   const handleToggleTask = useCallback(
     (goalId: string, date: string, taskId: string) => {
       if (date !== today) return;
@@ -657,28 +649,15 @@ export default function Home() {
         llmPayload={getLLMPayload}
       />
 
-      {settings.rightSidebarVisible ? (
-        <RightTimeline
-          goals={goals}
-          plans={plans}
-          activeDate={activeDate}
-          language={settings.language}
-          width={settings.rightSidebarWidth}
-          onWidthChange={handleRightSidebarWidthChange}
-          onHideSidebar={() => handleRightSidebarVisibleChange(false)}
-          onSelectDate={handleSelectDate}
-        />
-      ) : (
-        <div className="hidden items-start px-2 pt-3 lg:flex">
-          <button
-            onClick={() => handleRightSidebarVisibleChange(true)}
-            className="rounded-md border border-[var(--border)] bg-white px-2.5 py-1.5 text-[11px] text-[var(--muted)] hover:text-[var(--text)]"
-            title={settings.language === "ja" ? "タイムラインを表示" : "Show timeline"}
-          >
-            {settings.language === "ja" ? "タイムライン ›" : "Timeline ›"}
-          </button>
-        </div>
-      )}
+      <RightTimeline
+        goals={goals}
+        plans={plans}
+        activeDate={activeDate}
+        language={settings.language}
+        width={settings.rightSidebarWidth}
+        onWidthChange={handleRightSidebarWidthChange}
+        onSelectDate={handleSelectDate}
+      />
 
       {showGoalModal && (
         <GoalModal

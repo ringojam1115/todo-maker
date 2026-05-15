@@ -102,6 +102,5 @@ export interface AppSettings {
   sidebarWidth: number
   sidebarVisible: boolean
   rightSidebarWidth: number
-  rightSidebarVisible: boolean
   googleClientId?: string
 }
