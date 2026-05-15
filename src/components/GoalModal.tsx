@@ -137,23 +137,37 @@ export default function GoalModal({ onClose, onCreate, loading, activeGoals = []
         className="rounded-lg p-4 flex flex-col gap-3"
         style={{ background: "#f0f7e8", border: "1px solid #c3e0a0" }}
       >
-        <div>
-          <p className="text-sm font-semibold" style={{ color: "#1a1a1a" }}>
-            {m.name}
-          </p>
-          {m.totalPages && (
-            <p className="text-xs mt-0.5" style={{ color: "#666" }}>
-              総ページ数: {m.totalPages}p
-            </p>
+        <div className="flex gap-3">
+          {m.imageUrl && (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={m.imageUrl}
+              alt={m.name}
+              className="rounded flex-shrink-0 object-cover"
+              style={{ width: 56, height: 80 }}
+            />
           )}
-          <p className="text-xs mt-1 leading-relaxed" style={{ color: "#555" }}>
-            {m.structure}
-          </p>
-          {m.features && (
-            <p className="text-xs mt-1" style={{ color: "#888" }}>
-              {m.features}
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium mb-1" style={{ color: "#5c9e2e" }}>
+              この教材で合っていますか？
             </p>
-          )}
+            <p className="text-sm font-semibold" style={{ color: "#1a1a1a" }}>
+              {m.name}
+            </p>
+            {m.totalPages && (
+              <p className="text-xs mt-0.5" style={{ color: "#666" }}>
+                総ページ数: {m.totalPages}p
+              </p>
+            )}
+            <p className="text-xs mt-1 leading-relaxed" style={{ color: "#555" }}>
+              {m.structure}
+            </p>
+            {m.features && (
+              <p className="text-xs mt-1" style={{ color: "#888" }}>
+                {m.features}
+              </p>
+            )}
+          </div>
         </div>
         <div className="flex gap-2">
           <button
@@ -161,14 +175,14 @@ export default function GoalModal({ onClose, onCreate, loading, activeGoals = []
             className="px-3 py-1.5 rounded-lg text-xs font-medium text-white"
             style={{ background: "#5c9e2e" }}
           >
-            この教材を追加
+            はい、追加する
           </button>
           <button
             onClick={resetSearch}
             className="px-3 py-1.5 rounded-lg text-xs font-medium"
             style={{ color: "#666", background: "#f0f0ec", border: "1px solid #e0e0da" }}
           >
-            やり直す
+            違う、やり直す
           </button>
         </div>
       </div>

@@ -5,6 +5,7 @@ export interface Material {
   totalPages?: number
   features?: string
   source: 'search' | 'image' | 'manual'
+  imageUrl?: string
 }
 
 export interface Goal {
