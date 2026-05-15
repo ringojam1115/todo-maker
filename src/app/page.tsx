@@ -1,13 +1,28 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { v4 as uuidv4 } from "uuid";
-import type { Goal, DailyPlan, DailyPlansStore } from "@/types";
-import { loadGoals, saveGoals, loadPlans, savePlans } from "@/lib/storage";
+import type { Goal, DailyPlan, DailyPlansStore, SkillMemo } from "@/types";
+import {
+  loadGoals,
+  saveGoals,
+  loadPlans,
+  savePlans,
+  loadFeedbacks,
+  saveFeedbacks,
+  loadProfiles,
+  saveProfiles,
+  loadSkillMemos,
+  saveSkillMemos,
+} from "@/lib/storage";
+import type { CalendarSlots } from "@/lib/google-calendar";
+import { requestGoogleCalendarToken, getCalendarFreeSlots } from "@/lib/google-calendar";
 import LeftSidebar from "@/components/LeftSidebar";
 import CenterPanel from "@/components/CenterPanel";
 import RightTimeline from "@/components/RightTimeline";
 import GoalModal from "@/components/GoalModal";
+import GoalEditModal from "@/components/GoalEditModal";
+import GoalDeleteModal from "@/components/GoalDeleteModal";
 
 interface Tab {
   date: string;
@@ -27,12 +42,23 @@ export default function Home() {
   const [updatingTodos, setUpdatingTodos] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Edit / Delete modal state
+  const [editingGoalId, setEditingGoalId] = useState<string | null>(null);
+  const [deletingGoalId, setDeletingGoalId] = useState<string | null>(null);
+  const [savingGoal, setSavingGoal] = useState(false);
+
+  // Google Calendar state
+  const [calendarConnected, setCalendarConnected] = useState(false);
+  const [calendarSlots, setCalendarSlots] = useState<CalendarSlots>({});
+
   useEffect(() => {
     setGoals(loadGoals());
     setPlans(loadPlans());
   }, []);
 
   const selectedGoal = goals.find((g) => g.id === selectedGoalId) ?? null;
+  const editingGoal = editingGoalId ? goals.find((g) => g.id === editingGoalId) ?? null : null;
+  const deletingGoal = deletingGoalId ? goals.find((g) => g.id === deletingGoalId) ?? null : null;
 
   useEffect(() => {
     if (goals.length > 0) saveGoals(goals);
@@ -127,6 +153,18 @@ export default function Home() {
           color: "#5c9e2e",
         };
 
+        const otherGoals = goals.map((g) => ({
+          title: g.title,
+          dailyMinutes: g.dailyMinutes ?? 60,
+          daysLeft: Math.max(
+            0,
+            Math.ceil(
+              (new Date(g.deadline + "T00:00:00").getTime() - new Date(today + "T00:00:00").getTime()) /
+                (1000 * 60 * 60 * 24)
+            )
+          ),
+        }));
+
         const res = await fetch("/api/generate-todos", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -137,6 +175,8 @@ export default function Home() {
             currentLevel: newGoal.currentLevel,
             dailyMinutes: newGoal.dailyMinutes,
             materials: newGoal.materials,
+            calendarSlots: Object.keys(calendarSlots).length > 0 ? calendarSlots : undefined,
+            otherGoals: otherGoals.length > 0 ? otherGoals : undefined,
           }),
         });
 
@@ -184,8 +224,171 @@ export default function Home() {
         setGeneratingTodos(false);
       }
     },
-    [today]
+    [today, goals, calendarSlots]
   );
+
+  const handleEditGoal = useCallback((goalId: string) => {
+    setEditingGoalId(goalId);
+  }, []);
+
+  const handleSaveGoal = useCallback(
+    async (updatedGoal: Goal, regenerate: boolean) => {
+      setSavingGoal(true);
+      setError(null);
+      try {
+        setGoals((prev) => {
+          const next = prev.map((g) => (g.id === updatedGoal.id ? updatedGoal : g));
+          saveGoals(next);
+          return next;
+        });
+
+        if (regenerate) {
+          const otherGoals = goals
+            .filter((g) => g.id !== updatedGoal.id)
+            .map((g) => ({
+              title: g.title,
+              dailyMinutes: g.dailyMinutes ?? 60,
+              daysLeft: Math.max(
+                0,
+                Math.ceil(
+                  (new Date(g.deadline + "T00:00:00").getTime() - new Date(today + "T00:00:00").getTime()) /
+                    (1000 * 60 * 60 * 24)
+                )
+              ),
+            }));
+
+          const res = await fetch("/api/generate-todos", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              goalTitle: updatedGoal.title,
+              deadline: updatedGoal.deadline,
+              today,
+              currentLevel: updatedGoal.currentLevel,
+              dailyMinutes: updatedGoal.dailyMinutes,
+              materials: updatedGoal.materials,
+              calendarSlots: Object.keys(calendarSlots).length > 0 ? calendarSlots : undefined,
+              otherGoals: otherGoals.length > 0 ? otherGoals : undefined,
+            }),
+          });
+
+          if (!res.ok) throw new Error("プランの再生成に失敗しました");
+
+          const dailyPlan: Array<{
+            date: string;
+            tasks: Array<{ id: string; text: string; estimatedMinutes: number }>;
+            focus: string;
+          }> = await res.json();
+
+          setPlans((prev) => {
+            const next = { ...prev };
+            // Remove future plans for this goal
+            for (const key of Object.keys(next)) {
+              if (key.startsWith(`${updatedGoal.id}_`) && key.slice(updatedGoal.id.length + 1) >= today) {
+                delete next[key];
+              }
+            }
+            // Add regenerated plans
+            for (const day of dailyPlan) {
+              const key = `${updatedGoal.id}_${day.date}`;
+              next[key] = {
+                date: day.date,
+                tasks: (day.tasks || []).map((task) => ({
+                  id: task.id || uuidv4(),
+                  text: task.text,
+                  completed: false,
+                  estimatedMinutes: task.estimatedMinutes || 0,
+                })),
+                note: prev[key]?.note ?? "",
+                focus: day.focus,
+              };
+            }
+            savePlans(next);
+            return next;
+          });
+        }
+
+        setEditingGoalId(null);
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "エラーが発生しました");
+      } finally {
+        setSavingGoal(false);
+      }
+    },
+    [today, goals, calendarSlots]
+  );
+
+  const handleDeleteGoal = useCallback((goalId: string) => {
+    setDeletingGoalId(goalId);
+  }, []);
+
+  const handleConfirmDelete = useCallback(
+    (skillMemoText: string) => {
+      if (!deletingGoalId) return;
+      const goal = goals.find((g) => g.id === deletingGoalId);
+      if (!goal) return;
+
+      // Save skill memo if provided
+      if (skillMemoText.trim()) {
+        const memo: SkillMemo = {
+          id: uuidv4(),
+          goalId: deletingGoalId,
+          goalTitle: goal.title,
+          skills: skillMemoText.trim(),
+          source: "deleted",
+          createdAt: new Date().toISOString(),
+        };
+        const existing = loadSkillMemos();
+        saveSkillMemos([...existing, memo]);
+      }
+
+      // Remove goal
+      setGoals((prev) => {
+        const next = prev.filter((g) => g.id !== deletingGoalId);
+        saveGoals(next);
+        return next;
+      });
+
+      // Remove all plans for this goal
+      setPlans((prev) => {
+        const next: DailyPlansStore = {};
+        for (const [k, v] of Object.entries(prev)) {
+          if (!k.startsWith(`${deletingGoalId}_`)) next[k] = v;
+        }
+        savePlans(next);
+        return next;
+      });
+
+      // Remove feedbacks + profiles
+      const feedbacks = loadFeedbacks();
+      saveFeedbacks(feedbacks.filter((f) => f.goalId !== deletingGoalId));
+      const profiles = loadProfiles();
+      delete profiles[deletingGoalId];
+      saveProfiles(profiles);
+
+      // Clear selection if deleted goal was selected
+      if (selectedGoalId === deletingGoalId) {
+        setSelectedGoalId(null);
+        setOpenTabs([{ date: today, label: "今日" }]);
+        setActiveDate(today);
+      }
+
+      setDeletingGoalId(null);
+    },
+    [deletingGoalId, goals, selectedGoalId, today]
+  );
+
+  const handleConnectCalendar = useCallback(async () => {
+    if (calendarConnected) return;
+    try {
+      const token = await requestGoogleCalendarToken();
+      const slots = await getCalendarFreeSlots(token);
+      setCalendarSlots(slots);
+      setCalendarConnected(true);
+    } catch {
+      setError("Googleカレンダーの連携に失敗しました");
+    }
+  }, [calendarConnected]);
 
   const handleUpdateTodos = useCallback(
     async (date: string) => {
@@ -278,6 +481,22 @@ export default function Home() {
     });
   }, []);
 
+  // Collect plans and feedbacks for the delete modal
+  const deletingGoalPlans = useMemo(
+    () =>
+      deletingGoalId
+        ? Object.entries(plans)
+            .filter(([k]) => k.startsWith(`${deletingGoalId}_`))
+            .map(([, v]) => v)
+        : [],
+    [deletingGoalId, plans]
+  );
+  const deletingGoalFeedbacks = useMemo(
+    () =>
+      deletingGoalId ? loadFeedbacks().filter((f) => f.goalId === deletingGoalId) : [],
+    [deletingGoalId]
+  );
+
   return (
     <div className="flex h-screen overflow-hidden" style={{ background: "#f2f2ef" }}>
       <LeftSidebar
@@ -286,6 +505,10 @@ export default function Home() {
         plans={plans}
         onSelectGoal={handleSelectGoal}
         onAddGoal={() => setShowGoalModal(true)}
+        onEditGoal={handleEditGoal}
+        onDeleteGoal={handleDeleteGoal}
+        calendarConnected={calendarConnected}
+        onConnectCalendar={handleConnectCalendar}
       />
 
       <CenterPanel
@@ -300,6 +523,7 @@ export default function Home() {
         onUpdateTodos={handleUpdateTodos}
         updatingTodos={updatingTodos}
         onFeedbackSubmit={handleFeedbackSubmit}
+        allGoals={goals}
       />
 
       <RightTimeline
@@ -314,6 +538,26 @@ export default function Home() {
           onClose={() => setShowGoalModal(false)}
           onCreate={handleCreateGoal}
           loading={generatingTodos}
+          activeGoals={goals}
+        />
+      )}
+
+      {editingGoal && (
+        <GoalEditModal
+          goal={editingGoal}
+          onClose={() => setEditingGoalId(null)}
+          onSave={handleSaveGoal}
+          loading={savingGoal}
+        />
+      )}
+
+      {deletingGoal && (
+        <GoalDeleteModal
+          goal={deletingGoal}
+          plans={deletingGoalPlans}
+          feedbacks={deletingGoalFeedbacks}
+          onClose={() => setDeletingGoalId(null)}
+          onDelete={handleConfirmDelete}
         />
       )}
 

@@ -72,3 +72,12 @@ export interface LearningProfile {
   totalStudyMinutes: number
   updatedAt: string
 }
+
+export interface SkillMemo {
+  id: string
+  goalId: string
+  goalTitle: string
+  skills: string
+  source: 'deleted' | 'completed'
+  createdAt: string
+}

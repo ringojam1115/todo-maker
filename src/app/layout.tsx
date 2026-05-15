@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Manrope, JetBrains_Mono } from "next/font/google";
+import Script from "next/script";
 import "./globals.css";
 
 const manrope = Manrope({
@@ -33,6 +34,7 @@ export default function RootLayout({
         className="h-full"
         style={{ fontFamily: "var(--font-manrope), sans-serif" }}
       >
+        <Script src="https://accounts.google.com/gsi/client" strategy="afterInteractive" />
         {children}
       </body>
     </html>

@@ -18,6 +18,7 @@ export async function POST(request: Request) {
       remainingDays,
       currentPlans,
       profile,
+      otherGoals,
     }: {
       goal: Goal;
       date: string;
@@ -27,6 +28,7 @@ export async function POST(request: Request) {
       remainingDays: number;
       currentPlans: DailyPlan[];
       profile: LearningProfile;
+      otherGoals?: Array<{ title: string; dailyMinutes: number; remainingDays: number }>;
     } = await request.json();
 
     // --- Profile update (server-side) ---
@@ -124,7 +126,17 @@ ${
     .join("\n") || "データなし"
 }
 
-## 最適化のルール
+${
+  otherGoals && otherGoals.length > 0
+    ? `## 他の学習目標（全体の負荷バランス参考）
+${otherGoals
+  .map((g) => `- ${g.title}: 残り${g.remainingDays}日、1日${g.dailyMinutes}分`)
+  .join("\n")}
+合計1日学習時間: ${otherGoals.reduce((s, g) => s + g.dailyMinutes, 0) + goal.dailyMinutes}分
+
+`
+    : ""
+}## 最適化のルール
 - 達成率が60%以下のタスクは翌日に持ち越すか、分割して小さくする
 - 実際の時間が予定より常に長い場合は、estimatedMinutesを実績ベースに修正する
 - 難しいと評価された教材のタスクは量を減らす

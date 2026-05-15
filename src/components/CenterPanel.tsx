@@ -33,6 +33,7 @@ interface CenterPanelProps {
   onUpdateTodos: (date: string) => Promise<void>;
   updatingTodos: boolean;
   onFeedbackSubmit: (updatedPlans: DailyPlansStore) => void;
+  allGoals?: Goal[];
 }
 
 function formatTabLabel(date: string): string {
@@ -56,6 +57,7 @@ function DayView({
   plan,
   goal,
   plans,
+  allGoals,
   onToggleTask,
   onNoteChange,
   onUpdateTodos,
@@ -66,6 +68,7 @@ function DayView({
   plan: DailyPlan | undefined;
   goal: Goal | null;
   plans: DailyPlansStore;
+  allGoals: Goal[];
   onToggleTask: (taskId: string) => void;
   onNoteChange: (note: string) => void;
   onUpdateTodos: () => void;
@@ -172,6 +175,18 @@ function DayView({
         updatedAt: new Date().toISOString(),
       };
 
+      const otherGoals = allGoals
+        .filter((g) => g.id !== goal.id)
+        .map((g) => {
+          const dl = new Date(g.deadline + "T00:00:00");
+          const now = new Date(date + "T00:00:00");
+          return {
+            title: g.title,
+            dailyMinutes: g.dailyMinutes ?? 60,
+            remainingDays: Math.max(0, Math.ceil((dl.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))),
+          };
+        });
+
       const res = await fetch("/api/submit-feedback", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -184,6 +199,7 @@ function DayView({
           remainingDays,
           currentPlans,
           profile: currentProfile,
+          otherGoals,
         }),
       });
 
@@ -625,6 +641,7 @@ export default function CenterPanel({
   onUpdateTodos,
   updatingTodos,
   onFeedbackSubmit,
+  allGoals = [],
 }: CenterPanelProps) {
   const handleUpdateTodos = useCallback(
     () => onUpdateTodos(activeDate),
@@ -725,6 +742,7 @@ export default function CenterPanel({
         plan={currentPlan}
         goal={goal}
         plans={plans}
+        allGoals={allGoals}
         onToggleTask={(taskId) => onToggleTask(activeDate, taskId)}
         onNoteChange={(note) => onNoteChange(activeDate, note)}
         onUpdateTodos={handleUpdateTodos}

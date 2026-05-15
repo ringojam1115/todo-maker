@@ -12,8 +12,8 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import type { LearningProfile, DailyFeedback } from "@/types";
-import { loadFeedbacks, loadProfiles } from "@/lib/storage";
+import type { LearningProfile, DailyFeedback, SkillMemo } from "@/types";
+import { loadFeedbacks, loadProfiles, loadSkillMemos } from "@/lib/storage";
 
 function ProfileContent() {
   const searchParams = useSearchParams();
@@ -21,17 +21,20 @@ function ProfileContent() {
 
   const [profile, setProfile] = useState<LearningProfile | null>(null);
   const [feedbacks, setFeedbacks] = useState<DailyFeedback[]>([]);
+  const [skillMemos, setSkillMemos] = useState<SkillMemo[]>([]);
   const [aiComment, setAiComment] = useState("");
   const [loadingComment, setLoadingComment] = useState(false);
 
   useEffect(() => {
     const profiles = loadProfiles();
     const allFeedbacks = loadFeedbacks();
+    const allMemos = loadSkillMemos();
 
     if (goalId) {
       const p = profiles[goalId] ?? null;
       setProfile(p);
       setFeedbacks(allFeedbacks.filter((f) => f.goalId === goalId));
+      setSkillMemos(allMemos.filter((m) => m.goalId === goalId));
     }
   }, [goalId]);
 
@@ -266,6 +269,39 @@ function ProfileContent() {
                     </div>
                   </div>
                 ))}
+            </div>
+          </section>
+        )}
+
+        {/* Skill memos */}
+        {skillMemos.length > 0 && (
+          <section
+            className="rounded-xl p-5"
+            style={{ background: "#fff", border: "1px solid #e0e0da" }}
+          >
+            <h2 className="text-xs font-semibold mb-4" style={{ color: "#666" }}>
+              スキルメモ
+            </h2>
+            <div className="flex flex-col gap-3">
+              {skillMemos.map((memo) => (
+                <div
+                  key={memo.id}
+                  className="rounded-lg p-3 flex flex-col gap-1"
+                  style={{ background: "#f0f7e8", border: "1px solid #c3e0a0" }}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold" style={{ color: "#5c9e2e" }}>
+                      {memo.goalTitle}
+                    </span>
+                    <span className="text-xs" style={{ color: "#aaa" }}>
+                      {new Date(memo.createdAt).toLocaleDateString("ja-JP", { month: "short", day: "numeric" })}
+                    </span>
+                  </div>
+                  <p className="text-xs leading-relaxed whitespace-pre-line" style={{ color: "#444" }}>
+                    {memo.skills}
+                  </p>
+                </div>
+              ))}
             </div>
           </section>
         )}

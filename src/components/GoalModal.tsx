@@ -16,6 +16,7 @@ interface GoalModalProps {
   onClose: () => void;
   onCreate: (goal: Omit<Goal, "id" | "createdAt" | "color">) => void;
   loading: boolean;
+  activeGoals?: Goal[];
 }
 
 function Spinner({ size = "w-4 h-4" }: { size?: string }) {
@@ -33,7 +34,7 @@ const inputStyle = {
   fontFamily: "var(--font-manrope), sans-serif",
 };
 
-export default function GoalModal({ onClose, onCreate, loading }: GoalModalProps) {
+export default function GoalModal({ onClose, onCreate, loading, activeGoals = [] }: GoalModalProps) {
   const today = new Date().toISOString().split("T")[0];
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
@@ -406,6 +407,33 @@ export default function GoalModal({ onClose, onCreate, loading }: GoalModalProps
               <p className="text-xs font-semibold" style={{ color: "#5c9e2e" }}>
                 Step 3 — 確認・生成
               </p>
+
+              {/* Feasibility warnings */}
+              {(() => {
+                const daysLeft = deadline
+                  ? Math.ceil(
+                      (new Date(deadline + "T00:00:00").getTime() - new Date(today + "T00:00:00").getTime()) /
+                        (1000 * 60 * 60 * 24)
+                    )
+                  : 0;
+                const totalTime = daysLeft * dailyMinutes;
+                const otherDailyMinutes = activeGoals.reduce((s, g) => s + (g.dailyMinutes ?? 0), 0);
+                const totalDailyCommitment = dailyMinutes + otherDailyMinutes;
+                const warnings: string[] = [];
+                if (daysLeft < 7) warnings.push("残り日数が7日未満です。目標達成が難しい可能性があります。");
+                if (totalTime < 600) warnings.push(`総学習時間が${totalTime}分（約${Math.round(totalTime / 60)}時間）と少ない可能性があります。`);
+                if (totalDailyCommitment > 360) warnings.push(`他の目標と合わせた1日の学習時間が${totalDailyCommitment}分になります。無理のない範囲で設定しましょう。`);
+                if (warnings.length === 0) return null;
+                return (
+                  <div className="flex flex-col gap-2">
+                    {warnings.map((w) => (
+                      <div key={w} className="rounded-lg px-3 py-2 text-xs" style={{ background: "#fff8e8", border: "1px solid #e0c87a", color: "#7a5200" }}>
+                        ⚠️ {w}
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
 
               <div
                 className="rounded-lg p-4 flex flex-col gap-2.5"

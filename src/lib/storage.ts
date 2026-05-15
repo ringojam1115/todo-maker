@@ -1,4 +1,4 @@
-import type { Goal, DailyPlansStore, DailyFeedback, LearningProfile } from "@/types";
+import type { Goal, DailyPlansStore, DailyFeedback, LearningProfile, SkillMemo } from "@/types";
 
 const GOALS_KEY = "pln_goals";
 const PLANS_KEY = "pln_plans";
@@ -55,4 +55,19 @@ export function loadProfiles(): Record<string, LearningProfile> {
 
 export function saveProfiles(profiles: Record<string, LearningProfile>): void {
   localStorage.setItem(PROFILES_KEY, JSON.stringify(profiles));
+}
+
+const SKILLS_KEY = "pln_skills";
+
+export function loadSkillMemos(): SkillMemo[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem(SKILLS_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+export function saveSkillMemos(memos: SkillMemo[]): void {
+  localStorage.setItem(SKILLS_KEY, JSON.stringify(memos));
 }
