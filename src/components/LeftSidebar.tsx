@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import type { AppLanguage, DailyPlansStore, Goal } from "@/types";
+import type { AppLanguage, DailyPlansStore, Goal, Observation } from "@/types";
 import { UI_TEXT } from "@/lib/settings";
+import { saveObservations } from "@/lib/storage";
 
 interface Recommendation {
   name: string;
@@ -25,6 +26,8 @@ interface LeftSidebarProps {
   tips?: string[];
   recommendations?: Recommendation[];
   tipsLoading?: boolean;
+  observations?: Observation[];
+  onObservationsUpdate?: (observations: Observation[]) => void;
 }
 
 function getProgress(goal: Goal, plans: DailyPlansStore): number {
@@ -52,6 +55,13 @@ function daysLeft(deadline: string): number {
   return Math.ceil((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 }
 
+const obsTypeConfig = {
+  tendency: { label: "傾向", labelEn: "Tendency", color: "#7c3aed", bg: "#ede9fe" },
+  interest: { label: "関心", labelEn: "Interest", color: "#0369a1", bg: "#e0f2fe" },
+  pattern: { label: "パターン", labelEn: "Pattern", color: "#5c9e2e", bg: "#f0f7e8" },
+  struggle: { label: "詰まり", labelEn: "Struggle", color: "#b45309", bg: "#fff8e8" },
+};
+
 export default function LeftSidebar({
   goals,
   selectedGoalId,
@@ -68,6 +78,8 @@ export default function LeftSidebar({
   tips = [],
   recommendations = [],
   tipsLoading = false,
+  observations = [],
+  onObservationsUpdate,
 }: LeftSidebarProps) {
   const t = UI_TEXT[language];
 
@@ -86,6 +98,16 @@ export default function LeftSidebar({
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
   }
+
+  function deleteObservation(id: string) {
+    const updated = observations.filter((o) => o.id !== id);
+    saveObservations(updated);
+    onObservationsUpdate?.(updated);
+  }
+
+  const activeObservations = observations.filter(
+    (o) => new Date(o.expires_at) > new Date()
+  );
 
   return (
     <aside
@@ -112,8 +134,9 @@ export default function LeftSidebar({
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-4">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+        {/* Goals */}
+        <div className="flex flex-col px-2 py-4">
           <p className="mb-3 px-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--muted-2)]">
             {t.goals}
           </p>
@@ -123,7 +146,7 @@ export default function LeftSidebar({
               {t.addGoal}
             </button>
           ) : (
-            goals.map((goal, index) => {
+            goals.map((goal) => {
               const progress = getProgress(goal, plans);
               const remaining = daysLeft(goal.deadline);
               const isSelected = selectedGoalId === goal.id;
@@ -144,6 +167,12 @@ export default function LeftSidebar({
                           <span>{formatDeadline(goal.deadline, language)} {language === "ja" ? "まで" : ""}</span>
                           <span>{remaining >= 0 ? `${remaining}d` : `+${Math.abs(remaining)}d`}</span>
                         </div>
+                        {/* Gap summary if set */}
+                        {goal.gap_summary && (
+                          <p className="mt-1 truncate text-[10px] text-[var(--muted-2)]">
+                            {goal.gap_summary}
+                          </p>
+                        )}
                         <div className="mt-2 h-1 overflow-hidden rounded-full bg-[var(--border)]">
                           <div className="h-full rounded-full" style={{ width: `${progress}%`, background: color }} />
                         </div>
@@ -180,7 +209,52 @@ export default function LeftSidebar({
           )}
         </div>
 
-        <div className="max-h-[50%] overflow-y-auto border-t border-[var(--border)] px-2 py-3">
+        {/* Observations */}
+        {activeObservations.length > 0 && (
+          <div className="border-t border-[var(--border)] px-2 py-3">
+            <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--muted-2)]">
+              {language === "ja" ? "観測" : "Observations"}
+            </p>
+            <div className="flex flex-col gap-1.5">
+              {activeObservations.slice(0, 4).map((obs) => {
+                const cfg = obsTypeConfig[obs.type] ?? obsTypeConfig.tendency;
+                return (
+                  <div
+                    key={obs.id}
+                    className="group relative rounded-md border border-[var(--border)] bg-white px-3 py-2"
+                  >
+                    <div className="flex items-start gap-2">
+                      <span
+                        className="mt-0.5 shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-semibold"
+                        style={{ background: cfg.bg, color: cfg.color }}
+                      >
+                        {language === "ja" ? cfg.label : cfg.labelEn}
+                      </span>
+                      <p className="text-[11px] leading-relaxed text-[var(--text)]">{obs.content}</p>
+                    </div>
+                    <div className="mt-1 flex items-center justify-between">
+                      <div className="h-1 w-full rounded-full bg-[var(--border)] mr-2">
+                        <div
+                          className="h-full rounded-full"
+                          style={{ width: `${Math.round(obs.confidence * 100)}%`, background: cfg.color, opacity: 0.5 }}
+                        />
+                      </div>
+                      <button
+                        onClick={() => deleteObservation(obs.id)}
+                        className="hidden shrink-0 text-[10px] text-[var(--muted-2)] hover:text-red-500 group-hover:block"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Tips */}
+        <div className="border-t border-[var(--border)] px-2 py-3">
           <p className="mb-2 px-2 text-[10px] font-semibold uppercase tracking-[0.22em] text-[var(--muted-2)]">
             {t.tips}
           </p>

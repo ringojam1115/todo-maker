@@ -1,4 +1,4 @@
-import type { Goal, DailyPlansStore, DailyFeedback, LearningProfile, SkillMemo } from "@/types";
+import type { Goal, DailyPlansStore, DailyFeedback, LearningProfile, SkillMemo, Reflection, LearningLog, Observation } from "@/types";
 
 const GOALS_KEY = "pln_goals";
 const PLANS_KEY = "pln_plans";
@@ -92,4 +92,49 @@ export function saveTipsForGoal(goalId: string, tips: string[], recommendations:
   const all = loadTipsCache();
   all[goalId] = { tips, recommendations };
   localStorage.setItem(TIPS_KEY, JSON.stringify(all));
+}
+
+const REFLECTIONS_KEY = "pln_reflections";
+
+export function loadReflections(): Reflection[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem(REFLECTIONS_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+export function saveReflections(reflections: Reflection[]): void {
+  localStorage.setItem(REFLECTIONS_KEY, JSON.stringify(reflections));
+}
+
+const LEARNING_LOGS_KEY = "pln_learning_logs";
+
+export function loadLearningLogs(): LearningLog[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem(LEARNING_LOGS_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+export function saveLearningLogs(logs: LearningLog[]): void {
+  localStorage.setItem(LEARNING_LOGS_KEY, JSON.stringify(logs));
+}
+
+const OBSERVATIONS_KEY = "pln_observations";
+
+export function loadObservations(): Observation[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem(OBSERVATIONS_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+export function saveObservations(observations: Observation[]): void {
+  localStorage.setItem(OBSERVATIONS_KEY, JSON.stringify(observations));
 }

@@ -7,13 +7,18 @@ import type {
   DailyPlan,
   DailyPlansStore,
   Difficulty,
+  EnergyLevel,
   Goal,
+  LearningLog,
   LearningProfile,
+  Observation,
+  Reflection,
   Task,
   TaskFeedback,
 } from "@/types";
 import { UI_TEXT } from "@/lib/settings";
-import { loadFeedbacks, loadProfiles, saveFeedbacks, saveProfiles } from "@/lib/storage";
+import { loadFeedbacks, loadProfiles, saveFeedbacks, saveProfiles, loadReflections, saveReflections, loadLearningLogs, saveLearningLogs } from "@/lib/storage";
+import { v4 as uuidv4 } from "uuid";
 
 
 interface DayTask {
@@ -28,6 +33,7 @@ interface CenterPanelProps {
   activeDate: string;
   selectedDate: string | null;
   language: AppLanguage;
+  observations: Observation[];
   onTabSelect: (date: string) => void;
   onTabClose: (date: string) => void;
   onToggleTask: (goalId: string, date: string, taskId: string) => void;
@@ -38,6 +44,8 @@ interface CenterPanelProps {
     patch: Partial<Pick<Task, "reflection" | "artifact" | "actualMinutes" | "difficulty">>
   ) => void;
   onFeedbackSubmit: (updatedPlans: DailyPlansStore) => void;
+  onObservationsUpdate: (observations: Observation[]) => void;
+  onWeeklyReview: () => void;
   llmPayload: () => { provider: string; apiKey?: string; language: AppLanguage };
 }
 
@@ -92,17 +100,38 @@ function detailLines(task: Task): string[] {
   return lines.filter((line) => line !== task.text);
 }
 
+function EnergyBadge({ level, language }: { level?: EnergyLevel; language: AppLanguage }) {
+  if (!level) return null;
+  const config = {
+    deep: { labelJa: "集中", labelEn: "Deep", bg: "#ede9fe", color: "#7c3aed", border: "#c4b5fd" },
+    medium: { labelJa: "通常", labelEn: "Medium", bg: "#f0f7e8", color: "#5c9e2e", border: "#c3e0a0" },
+    light: { labelJa: "軽め", labelEn: "Light", bg: "#fff8e8", color: "#b45309", border: "#fde68a" },
+  };
+  const c = config[level];
+  return (
+    <span
+      className="rounded-full px-2 py-0.5 text-[9px] font-semibold"
+      style={{ background: c.bg, color: c.color, border: `1px solid ${c.border}` }}
+    >
+      {language === "ja" ? c.labelJa : c.labelEn}
+    </span>
+  );
+}
+
 export default function CenterPanel({
   goals,
   plans,
   activeDate,
   selectedDate,
   language,
+  observations,
   onTabSelect,
   onTabClose,
   onToggleTask,
   onTaskMetaChange,
   onFeedbackSubmit,
+  onObservationsUpdate,
+  onWeeklyReview,
   llmPayload,
 }: CenterPanelProps) {
   const t = UI_TEXT[language];
@@ -116,10 +145,55 @@ export default function CenterPanel({
   const items = useMemo(() => buildItems(goals, plans, activeDate), [goals, plans, activeDate]);
   const completed = items.filter((item) => item.task.completed).length;
   const [openDetails, setOpenDetails] = useState<Record<string, boolean>>({});
+  const [openReasons, setOpenReasons] = useState<Record<string, boolean>>({});
   const [submitting, setSubmitting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [dailyNotes, setDailyNotes] = useState<Record<string, string>>({});
   const dailyNote = dailyNotes[activeDate] ?? "";
+
+  // Structured reflections per task
+  const [taskReflections, setTaskReflections] = useState<Record<string, {
+    what_i_did: string;
+    what_i_learned: string;
+    what_blocked_me: string;
+    mood: string;
+    next_action: string;
+  }>>({});
+
+  // Learning log new entry
+  const [newLogContent, setNewLogContent] = useState("");
+  const [newLogGoalId, setNewLogGoalId] = useState<string>("");
+  const [savingLog, setSavingLog] = useState(false);
+  const [showLearningLog, setShowLearningLog] = useState(false);
+
+  function getTaskReflection(key: string) {
+    return taskReflections[key] ?? { what_i_did: "", what_i_learned: "", mood: "", what_blocked_me: "", next_action: "" };
+  }
+
+  function updateTaskReflection(key: string, field: string, value: string) {
+    setTaskReflections((prev) => ({
+      ...prev,
+      [key]: { ...getTaskReflection(key), [field]: value },
+    }));
+  }
+
+  function saveLearningLog() {
+    if (!newLogContent.trim()) return;
+    setSavingLog(true);
+    const logs = loadLearningLogs();
+    const newLog: LearningLog = {
+      id: uuidv4(),
+      date: activeDate,
+      content: newLogContent.trim(),
+      related_goal_id: newLogGoalId,
+      created_at: new Date().toISOString(),
+    };
+    saveLearningLogs([...logs, newLog]);
+    setNewLogContent("");
+    setSavingLog(false);
+    setToast(language === "ja" ? "学びを記録しました" : "Learning logged");
+    setTimeout(() => setToast(null), 2500);
+  }
 
   async function submitFeedback() {
     const byGoal = groupByGoal(items);
@@ -134,9 +208,12 @@ export default function CenterPanel({
       const nextFeedbacks: DailyFeedback[] = [...existingFeedbacks];
       let coachComment = "";
 
+      // Collect structured reflections
+      const allReflections = loadReflections();
+      const newReflections: Reflection[] = [];
+
       for (const [goalId, goalItems] of byGoal) {
         const goal = goalItems[0].goal;
-        const plan = goalItems[0].plan;
         const taskFeedbacks: TaskFeedback[] = goalItems.map(({ task }) => ({
           taskId: task.id,
           taskText: task.text,
@@ -149,6 +226,26 @@ export default function CenterPanel({
           reflection: task.reflection,
           artifact: task.artifact,
         }));
+
+        // Save structured reflections
+        for (const { task } of goalItems) {
+          const key = `${goal.id}_${activeDate}_${task.id}`;
+          const ref = taskReflections[key];
+          if (ref && (ref.what_i_did || ref.what_i_learned || ref.what_blocked_me)) {
+            newReflections.push({
+              id: uuidv4(),
+              task_id: task.id,
+              goal_id: goalId,
+              date: activeDate,
+              what_i_did: ref.what_i_did,
+              what_i_learned: ref.what_i_learned,
+              what_blocked_me: ref.what_blocked_me,
+              mood: ref.mood,
+              next_action: ref.next_action,
+              created_at: new Date().toISOString(),
+            });
+          }
+        }
 
         const deadlineDate = new Date(goal.deadline + "T00:00:00");
         const currentD = new Date(activeDate + "T00:00:00");
@@ -228,6 +325,51 @@ export default function CenterPanel({
         }
       }
 
+      // Save reflections
+      if (newReflections.length > 0) {
+        saveReflections([...allReflections, ...newReflections]);
+
+        // Generate observations from reflections
+        const firstGoalId = byGoal[0]?.[0];
+        const firstGoal = goals.find((g) => g.id === firstGoalId);
+        if (firstGoal) {
+          try {
+            const obsRes = await fetch("/api/generate-observations", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                reflections: newReflections,
+                existingObservations: observations,
+                goalTitle: firstGoal.title,
+                llm: llmPayload(),
+              }),
+            });
+            if (obsRes.ok) {
+              const obsData = await obsRes.json();
+              onObservationsUpdate(obsData.observations ?? []);
+            }
+          } catch {
+            // Observation generation is non-critical
+          }
+        }
+      }
+
+      // Auto-save today's learning note as LearningLog if provided
+      if (dailyNote.trim()) {
+        const logs = loadLearningLogs();
+        const firstGoalId = byGoal[0]?.[0];
+        const alreadyLogged = logs.some((l) => l.date === activeDate && l.content === dailyNote.trim());
+        if (!alreadyLogged) {
+          saveLearningLogs([...logs, {
+            id: uuidv4(),
+            date: activeDate,
+            content: dailyNote.trim(),
+            related_goal_id: firstGoalId ?? "",
+            created_at: new Date().toISOString(),
+          }]);
+        }
+      }
+
       saveFeedbacks(nextFeedbacks);
       saveProfiles(profiles);
       onFeedbackSubmit(updatedStore);
@@ -270,6 +412,14 @@ export default function CenterPanel({
             </button>
           );
         })}
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={onWeeklyReview}
+            className="rounded-full border border-[var(--border)] px-3 py-1 text-[11px] text-[var(--muted)] hover:border-[var(--border-strong)] hover:text-[var(--text)] transition-colors"
+          >
+            {language === "ja" ? "週次レビュー" : "Weekly Review"}
+          </button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-10 py-7">
@@ -282,7 +432,7 @@ export default function CenterPanel({
                 <div className="mt-4 flex flex-wrap gap-2">
                   {goals
                     .filter((goal) => items.some((item) => item.goal.id === goal.id))
-                    .map((goal, index) => (
+                    .map((goal) => (
                       <span key={goal.id} className="rounded-full bg-[var(--panel)] px-3 py-1 text-[11px] text-[var(--muted)]">
                         <span className="mr-1 inline-block h-1.5 w-1.5 rounded-full" style={{ background: goal.color }} />
                         {goal.title}
@@ -303,9 +453,10 @@ export default function CenterPanel({
           ) : (
             <>
               <section className="flex flex-col gap-3">
-                {items.map(({ goal, task }, index) => {
+                {items.map(({ goal, task }) => {
                   const key = `${goal.id}_${activeDate}_${task.id}`;
                   const detailOpen = openDetails[key] ?? false;
+                  const reasonOpen = openReasons[key] ?? false;
                   const details = detailLines(task);
                   const color = goal.color;
                   return (
@@ -330,7 +481,8 @@ export default function CenterPanel({
                             <p className={`text-sm leading-relaxed ${task.completed ? "text-[var(--muted-2)] line-through" : "text-[var(--text)]"}`}>
                               {task.text}
                             </p>
-                            <div className="flex shrink-0 items-center gap-3 text-xs text-[var(--muted-2)]">
+                            <div className="flex shrink-0 items-center gap-2 text-xs text-[var(--muted-2)]">
+                              <EnergyBadge level={task.energy_level} language={language} />
                               {task.estimatedMinutes > 0 && <span>{task.estimatedMinutes}分</span>}
                               {activeDate === today && (
                                 <button
@@ -343,6 +495,24 @@ export default function CenterPanel({
                             </div>
                           </div>
                           <p className="mt-1 text-[11px] text-[var(--muted)]">{goal.title}</p>
+
+                          {/* TODO reason */}
+                          {task.reason && (
+                            <div className="mt-1">
+                              <button
+                                onClick={() => setOpenReasons((prev) => ({ ...prev, [key]: !reasonOpen }))}
+                                className="text-[10px] text-[var(--muted-2)] hover:text-[var(--muted)] transition-colors"
+                              >
+                                {language === "ja" ? "理由を見る" : "Why this?"} {reasonOpen ? "⌃" : "⌄"}
+                              </button>
+                              {reasonOpen && (
+                                <p className="mt-1 text-[11px] leading-relaxed text-[var(--muted)] rounded bg-[var(--panel)] px-3 py-2">
+                                  {task.reason}
+                                </p>
+                              )}
+                            </div>
+                          )}
+
                           {activeDate === today && detailOpen && (
                             <div className="mt-3 rounded-md bg-[var(--panel)] px-4 py-3">
                               {details.length > 0 ? (
@@ -387,17 +557,19 @@ export default function CenterPanel({
                   <div className="flex flex-col gap-3">
                     {items.map(({ goal, task }) => {
                       const color = goal.color;
+                      const key = `${goal.id}_${activeDate}_${task.id}`;
+                      const ref = getTaskReflection(key);
                       return (
                         <div key={`${goal.id}_${task.id}_feedback`} className="rounded-lg border border-[var(--border)] bg-white px-4 py-3">
                           <div className="flex items-start justify-between gap-3">
                             <div className="flex min-w-0 items-start gap-2">
-                            <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ background: color }} />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm leading-relaxed text-[var(--text)]">{task.text}</p>
-                              <p className="mt-1 text-[11px] font-semibold" style={{ color }}>
-                                {goal.title}
-                              </p>
-                            </div>
+                              <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full" style={{ background: color }} />
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm leading-relaxed text-[var(--text)]">{task.text}</p>
+                                <p className="mt-1 text-[11px] font-semibold" style={{ color }}>
+                                  {goal.title}
+                                </p>
+                              </div>
                             </div>
                             {task.completed && (
                               <span className="shrink-0 rounded-full bg-[var(--accent-soft)] px-2 py-0.5 text-[10px] font-semibold text-[var(--accent)]">
@@ -442,43 +614,148 @@ export default function CenterPanel({
                             </div>
                           </div>
 
-                          <textarea
-                            value={task.reflection ?? ""}
-                            onChange={(e) => onTaskMetaChange(goal.id, activeDate, task.id, { reflection: e.target.value })}
-                            placeholder={
-                              language === "ja"
-                                ? "気づき、詰まった点、成果などを記録..."
-                                : "Notes, blockers, artifacts..."
-                            }
-                            rows={3}
-                            className="mt-3 w-full resize-none rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-2)] focus:border-[var(--accent)]"
-                          />
+                          {/* Structured reflection */}
+                          <div className="mt-3 flex flex-col gap-2">
+                            <div className="grid grid-cols-2 gap-2">
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-medium text-[var(--muted)]">
+                                  {language === "ja" ? "やったこと" : "What I did"}
+                                </label>
+                                <textarea
+                                  value={ref.what_i_did}
+                                  onChange={(e) => updateTaskReflection(key, "what_i_did", e.target.value)}
+                                  rows={2}
+                                  placeholder={language === "ja" ? "実際にやったこと..." : "What I actually did..."}
+                                  className="w-full resize-none rounded border border-[var(--border)] bg-[var(--panel)] px-2 py-1.5 text-xs outline-none placeholder:text-[var(--muted-2)] focus:border-[var(--accent)]"
+                                />
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-medium text-[var(--muted)]">
+                                  {language === "ja" ? "学んだこと" : "What I learned"}
+                                </label>
+                                <textarea
+                                  value={ref.what_i_learned}
+                                  onChange={(e) => updateTaskReflection(key, "what_i_learned", e.target.value)}
+                                  rows={2}
+                                  placeholder={language === "ja" ? "気づき・学び..." : "Key learnings..."}
+                                  className="w-full resize-none rounded border border-[var(--border)] bg-[var(--panel)] px-2 py-1.5 text-xs outline-none placeholder:text-[var(--muted-2)] focus:border-[var(--accent)]"
+                                />
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-medium text-[var(--muted)]">
+                                  {language === "ja" ? "詰まったこと" : "What blocked me"}
+                                </label>
+                                <textarea
+                                  value={ref.what_blocked_me}
+                                  onChange={(e) => updateTaskReflection(key, "what_blocked_me", e.target.value)}
+                                  rows={2}
+                                  placeholder={language === "ja" ? "引っかかった点..." : "Blockers / difficulties..."}
+                                  className="w-full resize-none rounded border border-[var(--border)] bg-[var(--panel)] px-2 py-1.5 text-xs outline-none placeholder:text-[var(--muted-2)] focus:border-[var(--accent)]"
+                                />
+                              </div>
+                              <div className="flex flex-col gap-1">
+                                <label className="text-[10px] font-medium text-[var(--muted)]">
+                                  {language === "ja" ? "次にやること" : "Next action"}
+                                </label>
+                                <textarea
+                                  value={ref.next_action}
+                                  onChange={(e) => updateTaskReflection(key, "next_action", e.target.value)}
+                                  rows={2}
+                                  placeholder={language === "ja" ? "次回やること..." : "What to do next..."}
+                                  className="w-full resize-none rounded border border-[var(--border)] bg-[var(--panel)] px-2 py-1.5 text-xs outline-none placeholder:text-[var(--muted-2)] focus:border-[var(--accent)]"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex flex-col gap-1">
+                              <label className="text-[10px] font-medium text-[var(--muted)]">
+                                {language === "ja" ? "気分" : "Mood"}
+                              </label>
+                              <div className="flex gap-1">
+                                {(["😊", "😐", "😓", "🔥", "😴"] as const).map((emoji) => (
+                                  <button
+                                    key={emoji}
+                                    onClick={() => updateTaskReflection(key, "mood", ref.mood === emoji ? "" : emoji)}
+                                    className="rounded-full w-8 h-8 flex items-center justify-center text-base border transition-colors"
+                                    style={{
+                                      borderColor: ref.mood === emoji ? "var(--border-strong)" : "var(--border)",
+                                      background: ref.mood === emoji ? "var(--panel)" : "#fff",
+                                    }}
+                                  >
+                                    {emoji}
+                                  </button>
+                                ))}
+                              </div>
+                            </div>
+                          </div>
                         </div>
                       );
                     })}
                   </div>
 
+                  {/* Daily note / learning log */}
                   <div className="rounded-lg border border-[var(--border)] bg-white px-4 py-3">
-                    <div className="flex items-start gap-2">
-                      <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[var(--muted-2)]" />
-                      <div className="min-w-0 flex-1">
-                        <p className="text-sm leading-relaxed text-[var(--text)]">
-                          {language === "ja" ? "今日学んだこと" : "What you learned today"}
-                        </p>
-                        <p className="mt-1 text-[11px] text-[var(--muted)]">
-                          {language === "ja"
-                            ? "追加でやったこと・今日の学びを記録（次回のTODO更新に反映されます）"
-                            : "Extra work done & today's learnings — used for next TODO update"}
-                        </p>
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <div className="flex items-start gap-2">
+                        <span className="mt-1.5 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[var(--muted-2)]" />
+                        <div>
+                          <p className="text-sm leading-relaxed text-[var(--text)]">
+                            {language === "ja" ? "今日学んだこと" : "What you learned today"}
+                          </p>
+                          <p className="mt-0.5 text-[11px] text-[var(--muted)]">
+                            {language === "ja" ? "振り返りに自動保存されます" : "Auto-saved to learning log"}
+                          </p>
+                        </div>
                       </div>
+                      <button
+                        onClick={() => setShowLearningLog((p) => !p)}
+                        className="text-[10px] text-[var(--muted)] hover:text-[var(--text)] border border-[var(--border)] rounded px-2 py-1"
+                      >
+                        {language === "ja" ? "ログを追加" : "Add log"}
+                      </button>
                     </div>
                     <textarea
                       value={dailyNote}
                       onChange={(e) => setDailyNotes((prev) => ({ ...prev, [activeDate]: e.target.value }))}
                       placeholder={language === "ja" ? "今日の学び、次回に活かしたいことを記録..." : "What did you learn today?"}
                       rows={3}
-                      className="mt-3 w-full resize-none rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-2)] focus:border-[var(--accent)]"
+                      className="w-full resize-none rounded-md border border-[var(--border)] bg-[var(--panel)] px-3 py-2 text-sm outline-none placeholder:text-[var(--muted-2)] focus:border-[var(--accent)]"
                     />
+
+                    {/* Quick learning log entry */}
+                    {showLearningLog && (
+                      <div className="mt-3 flex flex-col gap-2 rounded-md border border-[var(--border)] bg-[var(--panel)] p-3">
+                        <p className="text-[11px] font-medium text-[var(--muted)]">
+                          {language === "ja" ? "学習ログを追加" : "Add learning log"}
+                        </p>
+                        <textarea
+                          value={newLogContent}
+                          onChange={(e) => setNewLogContent(e.target.value)}
+                          placeholder={language === "ja" ? "今日学んだこと・気づきを記録..." : "Log your learning..."}
+                          rows={2}
+                          className="w-full resize-none rounded border border-[var(--border)] bg-white px-3 py-2 text-xs outline-none placeholder:text-[var(--muted-2)] focus:border-[var(--accent)]"
+                        />
+                        <div className="flex items-center gap-2">
+                          <select
+                            value={newLogGoalId}
+                            onChange={(e) => setNewLogGoalId(e.target.value)}
+                            className="flex-1 rounded border border-[var(--border)] bg-white px-2 py-1 text-xs text-[var(--text)] outline-none"
+                          >
+                            <option value="">{language === "ja" ? "目標を選択（任意）" : "Select goal (optional)"}</option>
+                            {goals.map((g) => (
+                              <option key={g.id} value={g.id}>{g.title}</option>
+                            ))}
+                          </select>
+                          <button
+                            onClick={saveLearningLog}
+                            disabled={savingLog || !newLogContent.trim()}
+                            className="rounded px-3 py-1 text-[11px] font-medium text-white disabled:opacity-40"
+                            style={{ background: "var(--accent)" }}
+                          >
+                            {language === "ja" ? "保存" : "Save"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   <button

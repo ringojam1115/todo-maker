@@ -46,6 +46,9 @@ export default function GoalEditModal({ goal, onClose, onSave, loading }: GoalEd
   const [currentLevel, setCurrentLevel] = useState(goal.currentLevel ?? "");
   const [dailyMinutes, setDailyMinutes] = useState(goal.dailyMinutes ?? 60);
   const [materials, setMaterials] = useState<Material[]>(goal.materials ?? []);
+  const [currentState, setCurrentState] = useState(goal.current_state ?? "");
+  const [idealState, setIdealState] = useState(goal.ideal_state ?? "");
+  const [gapSummary, setGapSummary] = useState(goal.gap_summary ?? "");
   const [regenerate, setRegenerate] = useState(false);
 
   // Material search (same pattern as GoalModal)
@@ -126,6 +129,9 @@ export default function GoalEditModal({ goal, onClose, onSave, loading }: GoalEd
         currentLevel: currentLevel.trim(),
         dailyMinutes,
         materials,
+        current_state: currentState.trim(),
+        ideal_state: idealState.trim(),
+        gap_summary: gapSummary.trim(),
       },
       regenerate
     );
@@ -233,6 +239,23 @@ export default function GoalEditModal({ goal, onClose, onSave, loading }: GoalEd
             {materialSearchState === "analyzed" && analyzedMaterial && (
               <MaterialCard m={analyzedMaterial} onAdd={() => addMaterial(analyzedMaterial)} />
             )}
+          </div>
+
+          {/* Gap analysis */}
+          <div className="flex flex-col gap-3 rounded-lg p-3" style={{ background: "#f9f9f7", border: "1px solid #e0e0da" }}>
+            <p className="text-[11px] font-semibold" style={{ color: "#5c9e2e" }}>現状・理想・ギャップ</p>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium" style={{ color: "#666" }}>現状</label>
+              <textarea rows={2} placeholder="例：自己紹介は話せるが深掘り質問に弱い" value={currentState} onChange={(e) => setCurrentState(e.target.value)} className="w-full rounded-lg px-3 py-2 text-sm outline-none resize-none" style={inputStyle} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium" style={{ color: "#666" }}>理想</label>
+              <textarea rows={2} placeholder="例：日本語でも英語でも自然に受け答えできる" value={idealState} onChange={(e) => setIdealState(e.target.value)} className="w-full rounded-lg px-3 py-2 text-sm outline-none resize-none" style={inputStyle} />
+            </div>
+            <div className="flex flex-col gap-1">
+              <label className="text-xs font-medium" style={{ color: "#666" }}>ギャップ</label>
+              <textarea rows={2} placeholder="例：即答力不足、口頭練習不足" value={gapSummary} onChange={(e) => setGapSummary(e.target.value)} className="w-full rounded-lg px-3 py-2 text-sm outline-none resize-none" style={inputStyle} />
+            </div>
           </div>
 
           {/* Regenerate option */}

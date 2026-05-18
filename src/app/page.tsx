@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { v4 as uuidv4 } from "uuid";
-import type { Goal, DailyPlan, DailyPlansStore, SkillMemo } from "@/types";
+import type { Goal, DailyPlan, DailyPlansStore, SkillMemo, TaskFeedback, LearningProfile, Observation } from "@/types";
 import type { AppSettings, Task } from "@/types";
 import {
   loadGoals,
@@ -17,6 +17,9 @@ import {
   saveSkillMemos,
   loadTipsCache,
   saveTipsForGoal,
+  loadObservations,
+  saveObservations,
+  loadReflections,
 } from "@/lib/storage";
 import { DEFAULT_SETTINGS, GOAL_COLORS, loadSettings, saveSettings } from "@/lib/settings";
 import type { CalendarSlots } from "@/lib/google-calendar";
@@ -28,6 +31,7 @@ import GoalModal from "@/components/GoalModal";
 import GoalEditModal from "@/components/GoalEditModal";
 import GoalDeleteModal from "@/components/GoalDeleteModal";
 import SettingsModal from "@/components/SettingsModal";
+import WeeklyReviewModal from "@/components/WeeklyReviewModal";
 
 interface Tab {
   date: string;
@@ -64,6 +68,21 @@ export default function Home() {
   const [recommendations, setRecommendations] = useState<{ name: string; reason: string }[]>([]);
   const [tipsLoading, setTipsLoading] = useState(false);
 
+  // Observations state
+  const [observations, setObservations] = useState<Observation[]>([]);
+
+  // Weekly Review modal
+  const [showWeeklyReview, setShowWeeklyReview] = useState(false);
+
+  // Auto-submit state
+  const [dataLoaded, setDataLoaded] = useState(false);
+  const [autoSubmitStatus, setAutoSubmitStatus] = useState<string | null>(null);
+
+  // Refs for stable access inside scheduled callbacks (avoids stale closures)
+  const goalsRef = useRef<Goal[]>([]);
+  const plansRef = useRef<DailyPlansStore>({});
+  const settingsRef = useRef<AppSettings>(DEFAULT_SETTINGS);
+
   useEffect(() => {
     const loaded = loadGoals();
     // Migrate goals that still have the legacy single color
@@ -73,9 +92,19 @@ export default function Home() {
       ? loaded.map((g, i) => ({ ...g, color: GOAL_COLORS[i % GOAL_COLORS.length] }))
       : loaded;
     if (allLegacy && migrated.length > 0) saveGoals(migrated);
+    const loadedPlans = loadPlans();
+    const loadedSettings = loadSettings();
+    goalsRef.current = migrated;
+    plansRef.current = loadedPlans;
+    settingsRef.current = loadedSettings;
+    const loadedObservations = loadObservations().filter(
+      (o) => new Date(o.expires_at) > new Date()
+    );
     setGoals(migrated);
-    setPlans(loadPlans());
-    setSettings(loadSettings());
+    setPlans(loadedPlans);
+    setSettings(loadedSettings);
+    setObservations(loadedObservations);
+    setDataLoaded(true);
   }, []);
 
   const selectedGoal = goals.find((g) => g.id === selectedGoalId) ?? null;
@@ -85,11 +114,17 @@ export default function Home() {
 
   useEffect(() => {
     if (goals.length > 0) saveGoals(goals);
+    goalsRef.current = goals;
   }, [goals]);
 
   useEffect(() => {
     if (Object.keys(plans).length > 0) savePlans(plans);
+    plansRef.current = plans;
   }, [plans]);
+
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
 
   useEffect(() => {
     if (!error) return;
@@ -136,6 +171,179 @@ export default function Home() {
     language: settings.language,
   }), [settings]);
 
+  // Automatically submit feedback for a past date if none was submitted.
+  // Uses refs so it can be called from setTimeout/setInterval without stale closures.
+  const autoSubmitFeedback = useCallback(async (date: string) => {
+    const currentGoals = goalsRef.current;
+    const currentPlans = plansRef.current;
+    if (currentGoals.length === 0) return;
+
+    const existingFeedbacks = loadFeedbacks();
+    const profiles = loadProfiles();
+
+    const goalsNeedingFeedback = currentGoals.filter((goal) => {
+      const plan = currentPlans[`${goal.id}_${date}`];
+      return plan != null && !existingFeedbacks.some((f) => f.goalId === goal.id && f.date === date);
+    });
+
+    if (goalsNeedingFeedback.length === 0) return;
+
+    const nextFeedbacks = [...existingFeedbacks];
+    const updatedStore: DailyPlansStore = {};
+
+    for (const goal of goalsNeedingFeedback) {
+      const plan = currentPlans[`${goal.id}_${date}`];
+      const taskFeedbacks: TaskFeedback[] = plan.tasks.map((task) => ({
+        taskId: task.id,
+        taskText: task.text,
+        completed: task.completed,
+        completionRate: task.completed ? 100 : 0,
+        actualMinutes: task.actualMinutes ?? task.estimatedMinutes ?? 30,
+        estimatedMinutes: task.estimatedMinutes || 30,
+        difficulty: task.difficulty ?? "just_right",
+        materialName: goal.materials?.[0]?.name,
+        reflection: task.reflection,
+        artifact: task.artifact,
+      }));
+
+      const deadlineDate = new Date(goal.deadline + "T00:00:00");
+      const currentD = new Date(date + "T00:00:00");
+      const remainingDays = Math.max(
+        0,
+        Math.ceil((deadlineDate.getTime() - currentD.getTime()) / (1000 * 60 * 60 * 24))
+      );
+
+      const currentPlanItems: DailyPlan[] = [];
+      const d = new Date(date + "T00:00:00");
+      d.setDate(d.getDate() + 1);
+      while (d <= deadlineDate) {
+        const dateStr = d.toISOString().split("T")[0];
+        const future = currentPlans[`${goal.id}_${dateStr}`];
+        if (future) currentPlanItems.push(future);
+        d.setDate(d.getDate() + 1);
+      }
+
+      const currentProfile: LearningProfile = profiles[goal.id] || {
+        goalId: goal.id,
+        averageCompletionRate: 0,
+        averageTimeRatio: 1,
+        materialAffinities: [],
+        difficultyTrend: "stable",
+        totalStudyMinutes: 0,
+        updatedAt: new Date().toISOString(),
+      };
+
+      const otherGoals = currentGoals
+        .filter((g) => g.id !== goal.id)
+        .map((g) => ({
+          title: g.title,
+          dailyMinutes: g.dailyMinutes ?? 60,
+          remainingDays: Math.max(
+            0,
+            Math.ceil(
+              (new Date(g.deadline + "T00:00:00").getTime() - currentD.getTime()) / (1000 * 60 * 60 * 24)
+            )
+          ),
+        }));
+
+      try {
+        const res = await fetch("/api/submit-feedback", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            goal,
+            date,
+            taskFeedbacks,
+            overallNote: "",
+            energyLevel: "medium",
+            remainingDays,
+            currentPlans: currentPlanItems,
+            profile: currentProfile,
+            otherGoals,
+            llm: {
+              provider: settingsRef.current.provider,
+              apiKey: settingsRef.current.apiKeys[settingsRef.current.provider],
+              language: settingsRef.current.language,
+            },
+          }),
+        });
+
+        if (!res.ok) continue;
+        const data = await res.json();
+        profiles[goal.id] = data.updatedProfile;
+
+        for (const dayPlan of data.updatedPlans as Array<{ date: string; focus: string; tasks: Task[] }>) {
+          const key = `${goal.id}_${dayPlan.date}`;
+          updatedStore[key] = {
+            date: dayPlan.date,
+            focus: dayPlan.focus,
+            tasks: dayPlan.tasks.map((task) => ({ ...task, completed: false })),
+            note: currentPlans[key]?.note ?? "",
+          };
+        }
+
+        nextFeedbacks.push({
+          date,
+          goalId: goal.id,
+          taskFeedbacks,
+          overallNote: "",
+          energyLevel: "medium",
+          createdAt: new Date().toISOString(),
+        });
+      } catch {
+        // continue to next goal if one fails
+      }
+    }
+
+    saveFeedbacks(nextFeedbacks);
+    saveProfiles(profiles);
+
+    if (Object.keys(updatedStore).length > 0) {
+      setPlans((prev) => {
+        const next = { ...prev, ...updatedStore };
+        savePlans(next);
+        return next;
+      });
+      const lang = settingsRef.current.language;
+      setAutoSubmitStatus(
+        lang === "ja"
+          ? `${date} の振り返りを自動送信し、TODOを更新しました`
+          : `Auto-submitted feedback for ${date} and updated TODOs`
+      );
+      setTimeout(() => setAutoSubmitStatus(null), 5000);
+    }
+  }, []); // stable — only reads refs, not state
+
+  // On mount (after data loads) and at each midnight, auto-submit missing feedback for the previous day.
+  useEffect(() => {
+    if (!dataLoaded) return;
+
+    const checkYesterday = () => {
+      const yesterday = new Date();
+      yesterday.setDate(yesterday.getDate() - 1);
+      autoSubmitFeedback(yesterday.toISOString().split("T")[0]);
+    };
+
+    checkYesterday();
+
+    const now = new Date();
+    const nextMidnight = new Date(now);
+    nextMidnight.setDate(nextMidnight.getDate() + 1);
+    nextMidnight.setHours(0, 0, 5, 0); // 5 seconds past midnight
+    const msUntilMidnight = nextMidnight.getTime() - now.getTime();
+
+    let dailyInterval: ReturnType<typeof setInterval> | null = null;
+    const midnightTimeout = setTimeout(() => {
+      checkYesterday();
+      dailyInterval = setInterval(checkYesterday, 24 * 60 * 60 * 1000);
+    }, msUntilMidnight);
+
+    return () => {
+      clearTimeout(midnightTimeout);
+      if (dailyInterval) clearInterval(dailyInterval);
+    };
+  }, [dataLoaded, autoSubmitFeedback]);
+
   const fetchTipsForGoal = useCallback((goal: Goal, allPlans: DailyPlansStore) => {
     const goalPlans = Object.entries(allPlans)
       .filter(([k]) => k.startsWith(`${goal.id}_`))
@@ -144,10 +352,30 @@ export default function Home() {
     setTipsLoading(true);
     const profiles = loadProfiles();
     const profile = profiles[goal.id] ?? null;
+    const allReflections = loadReflections();
+    const recentReflections = allReflections
+      .filter((r) => r.goal_id === goal.id)
+      .sort((a, b) => b.date.localeCompare(a.date))
+      .slice(0, 3)
+      .map((r) => ({
+        date: r.date,
+        what_i_learned: r.what_i_learned,
+        what_blocked_me: r.what_blocked_me,
+        mood: r.mood,
+      }));
+    const currentObs = loadObservations().filter((o) => new Date(o.expires_at) > new Date());
     fetch("/api/learning-tips", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ goal, plans: goalPlans, profile, today, llm: getLLMPayload() }),
+      body: JSON.stringify({
+        goal,
+        plans: goalPlans,
+        profile,
+        today,
+        observations: currentObs,
+        recentReflections,
+        llm: getLLMPayload(),
+      }),
     })
       .then((r) => r.json())
       .then((data) => {
@@ -261,6 +489,10 @@ export default function Home() {
             materials: newGoal.materials,
             calendarSlots: Object.keys(calendarSlots).length > 0 ? calendarSlots : undefined,
             otherGoals: otherGoals.length > 0 ? otherGoals : undefined,
+            currentState: newGoal.current_state,
+            idealState: newGoal.ideal_state,
+            gapSummary: newGoal.gap_summary,
+            observations: observations.length > 0 ? observations : undefined,
             llm: getLLMPayload(),
           }),
         });
@@ -269,7 +501,7 @@ export default function Home() {
 
         const dailyPlan: Array<{
           date: string;
-          tasks: Array<{ id: string; text: string; estimatedMinutes: number; detail?: string }>;
+          tasks: Array<{ id: string; text: string; estimatedMinutes: number; detail?: string; energy_level?: string; reason?: string }>;
           focus: string;
         }> = await res.json();
 
@@ -284,6 +516,8 @@ export default function Home() {
               completed: false,
               estimatedMinutes: task.estimatedMinutes || 0,
               detail: task.detail,
+              energy_level: task.energy_level as Task["energy_level"],
+              reason: task.reason,
             })),
             note: "",
             focus: day.focus,
@@ -312,7 +546,7 @@ export default function Home() {
         setGeneratingTodos(false);
       }
     },
-    [today, goals, calendarSlots, getLLMPayload, fetchTipsForGoal, plans]
+    [today, goals, calendarSlots, getLLMPayload, fetchTipsForGoal, plans, observations]
   );
 
   const handleEditGoal = useCallback((goalId: string) => {
@@ -345,6 +579,13 @@ export default function Home() {
               ),
             }));
 
+          const allReflections = loadReflections();
+          const recentReflections = allReflections
+            .filter((r) => r.goal_id === updatedGoal.id)
+            .sort((a, b) => b.date.localeCompare(a.date))
+            .slice(0, 3)
+            .map((r) => ({ date: r.date, what_i_learned: r.what_i_learned, what_blocked_me: r.what_blocked_me, mood: r.mood }));
+
           const res = await fetch("/api/generate-todos", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -357,6 +598,11 @@ export default function Home() {
               materials: updatedGoal.materials,
               calendarSlots: Object.keys(calendarSlots).length > 0 ? calendarSlots : undefined,
               otherGoals: otherGoals.length > 0 ? otherGoals : undefined,
+              currentState: updatedGoal.current_state,
+              idealState: updatedGoal.ideal_state,
+              gapSummary: updatedGoal.gap_summary,
+              recentReflections: recentReflections.length > 0 ? recentReflections : undefined,
+              observations: observations.length > 0 ? observations : undefined,
               llm: getLLMPayload(),
             }),
           });
@@ -365,19 +611,17 @@ export default function Home() {
 
           const dailyPlan: Array<{
             date: string;
-            tasks: Array<{ id: string; text: string; estimatedMinutes: number; detail?: string }>;
+            tasks: Array<{ id: string; text: string; estimatedMinutes: number; detail?: string; energy_level?: string; reason?: string }>;
             focus: string;
           }> = await res.json();
 
           setPlans((prev) => {
             const next = { ...prev };
-            // Remove future plans for this goal
             for (const key of Object.keys(next)) {
               if (key.startsWith(`${updatedGoal.id}_`) && key.slice(updatedGoal.id.length + 1) >= today) {
                 delete next[key];
               }
             }
-            // Add regenerated plans
             for (const day of dailyPlan) {
               const key = `${updatedGoal.id}_${day.date}`;
               next[key] = {
@@ -388,6 +632,8 @@ export default function Home() {
                   completed: false,
                   estimatedMinutes: task.estimatedMinutes || 0,
                   detail: task.detail,
+                  energy_level: task.energy_level as Task["energy_level"],
+                  reason: task.reason,
                 })),
                 note: prev[key]?.note ?? "",
                 focus: day.focus,
@@ -406,8 +652,13 @@ export default function Home() {
         setSavingGoal(false);
       }
     },
-    [today, goals, calendarSlots, getLLMPayload, fetchTipsForGoal]
+    [today, goals, calendarSlots, getLLMPayload, fetchTipsForGoal, observations]
   );
+
+  const handleObservationsUpdate = useCallback((updated: Observation[]) => {
+    setObservations(updated);
+    saveObservations(updated);
+  }, []);
 
   const handleDeleteGoal = useCallback((goalId: string) => {
     setDeletingGoalId(goalId);
@@ -632,6 +883,8 @@ export default function Home() {
           tips={tips}
           recommendations={recommendations}
           tipsLoading={tipsLoading}
+          observations={observations}
+          onObservationsUpdate={handleObservationsUpdate}
         />
       ) : (
         <div className="flex w-12 min-w-12 flex-col items-center border-r border-[var(--border)] bg-[var(--panel)] py-3">
@@ -658,11 +911,14 @@ export default function Home() {
         activeDate={activeDate}
         selectedDate={selectedDate}
         language={settings.language}
+        observations={observations}
         onTabSelect={handleTabSelect}
         onTabClose={handleTabClose}
         onToggleTask={handleToggleTask}
         onTaskMetaChange={handleTaskMetaChange}
         onFeedbackSubmit={handleFeedbackSubmit}
+        onObservationsUpdate={handleObservationsUpdate}
+        onWeeklyReview={() => setShowWeeklyReview(true)}
         llmPayload={getLLMPayload}
       />
 
@@ -714,12 +970,28 @@ export default function Home() {
         />
       )}
 
+      {showWeeklyReview && (
+        <WeeklyReviewModal
+          goals={goals}
+          observations={observations}
+          language={settings.language}
+          onClose={() => setShowWeeklyReview(false)}
+          llmPayload={getLLMPayload}
+        />
+      )}
+
       {error && (
         <div
           className="fixed bottom-6 left-1/2 -translate-x-1/2 px-5 py-3 rounded-xl text-sm text-white shadow-lg z-50"
           style={{ background: "#e53e3e" }}
         >
           {error}
+        </div>
+      )}
+
+      {autoSubmitStatus && (
+        <div className="fixed bottom-6 left-1/2 z-50 max-w-sm -translate-x-1/2 rounded-lg bg-[var(--text)] px-5 py-3 text-center text-sm text-white shadow-lg">
+          {autoSubmitStatus}
         </div>
       )}
     </div>
