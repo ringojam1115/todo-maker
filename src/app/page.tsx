@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { v4 as uuidv4 } from "uuid";
-import type { Goal, DailyPlan, DailyPlansStore, SkillMemo, TaskFeedback, LearningProfile, Observation } from "@/types";
+import type { Goal, DailyPlan, DailyPlansStore, SkillMemo, TaskFeedback, LearningProfile, Observation, WeeklyReviewResult } from "@/types";
 import type { AppSettings, Task } from "@/types";
 import {
   loadGoals,
@@ -20,6 +20,8 @@ import {
   loadObservations,
   saveObservations,
   loadReflections,
+  loadLatestWeeklyReview,
+  saveWeeklyReview,
 } from "@/lib/storage";
 import { DEFAULT_SETTINGS, GOAL_COLORS, loadSettings, saveSettings } from "@/lib/settings";
 import type { CalendarSlots } from "@/lib/google-calendar";
@@ -36,6 +38,7 @@ import WeeklyReviewModal from "@/components/WeeklyReviewModal";
 interface Tab {
   date: string;
   label: string;
+  weekEnd?: string;
 }
 
 export default function Home() {
@@ -47,6 +50,7 @@ export default function Home() {
   const [openTabs, setOpenTabs] = useState<Tab[]>([{ date: today, label: "今日" }]);
   const [activeDate, setActiveDate] = useState<string>(today);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [weekRange, setWeekRange] = useState<{ start: string; end: string } | null>(null);
   const [showGoalModal, setShowGoalModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
@@ -73,6 +77,7 @@ export default function Home() {
 
   // Weekly Review modal
   const [showWeeklyReview, setShowWeeklyReview] = useState(false);
+  const [latestWeeklyReview, setLatestWeeklyReview] = useState<WeeklyReviewResult | null>(null);
 
   // Auto-submit state
   const [dataLoaded, setDataLoaded] = useState(false);
@@ -104,6 +109,7 @@ export default function Home() {
     setPlans(loadedPlans);
     setSettings(loadedSettings);
     setObservations(loadedObservations);
+    setLatestWeeklyReview(loadLatestWeeklyReview());
     setDataLoaded(true);
   }, []);
 
@@ -146,12 +152,18 @@ export default function Home() {
     [today]
   );
 
-  const handleTabSelect = useCallback((date: string) => {
+  const handleTabSelect = useCallback((date: string, weekEnd?: string) => {
     setActiveDate(date);
+    if (weekEnd) {
+      setWeekRange({ start: date, end: weekEnd });
+    } else {
+      setWeekRange(null);
+    }
   }, []);
 
   const handleTabClose = useCallback(
     (date: string) => {
+      setWeekRange(null);
       setSelectedDate((prev) => (prev === date ? null : prev));
       setOpenTabs([{ date: today, label: "今日" }]);
       setActiveDate((prev) => (prev === date ? today : prev));
@@ -160,9 +172,20 @@ export default function Home() {
   );
 
   const handleSelectDate = useCallback((date: string) => {
+    setWeekRange(null);
     setSelectedDate(date === today ? null : date);
     setOpenTabs(date === today ? [{ date: today, label: "今日" }] : [{ date: today, label: "今日" }, { date, label: date }]);
     setActiveDate(date);
+  }, [today]);
+
+  const handleSelectWeek = useCallback((start: string, end: string) => {
+    const s = new Date(start + "T00:00:00");
+    const e = new Date(end + "T00:00:00");
+    const label = `${s.getMonth() + 1}/${s.getDate()}〜${e.getMonth() + 1}/${e.getDate()}`;
+    setWeekRange({ start, end });
+    setActiveDate(start);
+    setSelectedDate(null);
+    setOpenTabs([{ date: today, label: "今日" }, { date: start, label, weekEnd: end }]);
   }, [today]);
 
   const getLLMPayload = useCallback(() => ({
@@ -467,7 +490,8 @@ export default function Home() {
 
         const otherGoals = goals.map((g) => ({
           title: g.title,
-          dailyMinutes: g.dailyMinutes ?? 60,
+          timeCommitment: g.timeCommitment,
+          dailyMinutes: g.dailyMinutes,
           daysLeft: Math.max(
             0,
             Math.ceil(
@@ -484,8 +508,8 @@ export default function Home() {
             goalTitle: newGoal.title,
             deadline: newGoal.deadline,
             today,
-            currentLevel: newGoal.currentLevel,
-            dailyMinutes: newGoal.dailyMinutes,
+            timeCommitment: newGoal.timeCommitment,
+            scheduleNote: newGoal.scheduleNote,
             materials: newGoal.materials,
             calendarSlots: Object.keys(calendarSlots).length > 0 ? calendarSlots : undefined,
             otherGoals: otherGoals.length > 0 ? otherGoals : undefined,
@@ -493,6 +517,15 @@ export default function Home() {
             idealState: newGoal.ideal_state,
             gapSummary: newGoal.gap_summary,
             observations: observations.length > 0 ? observations : undefined,
+            weeklyReview: latestWeeklyReview
+              ? {
+                  next_week_policy: latestWeeklyReview.next_week_policy,
+                  reduce_todos: latestWeeklyReview.reduce_todos,
+                  increase_todos: latestWeeklyReview.increase_todos,
+                  goal_perception: latestWeeklyReview.goal_perception,
+                  weekStart: latestWeeklyReview.weekStart,
+                }
+              : undefined,
             llm: getLLMPayload(),
           }),
         });
@@ -569,7 +602,8 @@ export default function Home() {
             .filter((g) => g.id !== updatedGoal.id)
             .map((g) => ({
               title: g.title,
-              dailyMinutes: g.dailyMinutes ?? 60,
+              timeCommitment: g.timeCommitment,
+              dailyMinutes: g.dailyMinutes,
               daysLeft: Math.max(
                 0,
                 Math.ceil(
@@ -586,6 +620,9 @@ export default function Home() {
             .slice(0, 3)
             .map((r) => ({ date: r.date, what_i_learned: r.what_i_learned, what_blocked_me: r.what_blocked_me, mood: r.mood }));
 
+          const profiles = loadProfiles();
+          const goalProfile = profiles[updatedGoal.id];
+
           const res = await fetch("/api/generate-todos", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -593,8 +630,8 @@ export default function Home() {
               goalTitle: updatedGoal.title,
               deadline: updatedGoal.deadline,
               today,
-              currentLevel: updatedGoal.currentLevel,
-              dailyMinutes: updatedGoal.dailyMinutes,
+              timeCommitment: updatedGoal.timeCommitment,
+              scheduleNote: updatedGoal.scheduleNote,
               materials: updatedGoal.materials,
               calendarSlots: Object.keys(calendarSlots).length > 0 ? calendarSlots : undefined,
               otherGoals: otherGoals.length > 0 ? otherGoals : undefined,
@@ -603,6 +640,16 @@ export default function Home() {
               gapSummary: updatedGoal.gap_summary,
               recentReflections: recentReflections.length > 0 ? recentReflections : undefined,
               observations: observations.length > 0 ? observations : undefined,
+              learningProfile: goalProfile ?? undefined,
+              weeklyReview: latestWeeklyReview
+                ? {
+                    next_week_policy: latestWeeklyReview.next_week_policy,
+                    reduce_todos: latestWeeklyReview.reduce_todos,
+                    increase_todos: latestWeeklyReview.increase_todos,
+                    goal_perception: latestWeeklyReview.goal_perception,
+                    weekStart: latestWeeklyReview.weekStart,
+                  }
+                : undefined,
               llm: getLLMPayload(),
             }),
           });
@@ -910,6 +957,7 @@ export default function Home() {
         plans={plans}
         activeDate={activeDate}
         selectedDate={selectedDate}
+        weekRange={weekRange}
         language={settings.language}
         observations={observations}
         onTabSelect={handleTabSelect}
@@ -930,6 +978,7 @@ export default function Home() {
         width={settings.rightSidebarWidth}
         onWidthChange={handleRightSidebarWidthChange}
         onSelectDate={handleSelectDate}
+        onSelectWeek={handleSelectWeek}
       />
 
       {showGoalModal && (
@@ -976,6 +1025,10 @@ export default function Home() {
           observations={observations}
           language={settings.language}
           onClose={() => setShowWeeklyReview(false)}
+          onSave={(review) => {
+            saveWeeklyReview(review);
+            setLatestWeeklyReview(review);
+          }}
           llmPayload={getLLMPayload}
         />
       )}

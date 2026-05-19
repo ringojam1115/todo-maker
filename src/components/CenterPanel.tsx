@@ -32,9 +32,10 @@ interface CenterPanelProps {
   plans: DailyPlansStore;
   activeDate: string;
   selectedDate: string | null;
+  weekRange?: { start: string; end: string } | null;
   language: AppLanguage;
   observations: Observation[];
-  onTabSelect: (date: string) => void;
+  onTabSelect: (date: string, weekEnd?: string) => void;
   onTabClose: (date: string) => void;
   onToggleTask: (goalId: string, date: string, taskId: string) => void;
   onTaskMetaChange: (
@@ -118,11 +119,184 @@ function EnergyBadge({ level, language }: { level?: EnergyLevel; language: AppLa
   );
 }
 
+function WeekSummaryView({
+  goals,
+  plans,
+  weekRange,
+  language,
+}: {
+  goals: Goal[];
+  plans: DailyPlansStore;
+  weekRange: { start: string; end: string };
+  language: AppLanguage;
+}) {
+  // Collect plans per goal, sorted by date, within the week range
+  const goalWeekData = goals.map((goal) => {
+    const goalPlans = Object.entries(plans)
+      .filter(([k, v]) => k.startsWith(`${goal.id}_`) && v.date >= weekRange.start && v.date <= weekRange.end)
+      .map(([, v]) => v)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    return { goal, goalPlans };
+  }).filter((d) => d.goalPlans.length > 0);
+
+  const totalTasks = goalWeekData.reduce((s, d) => s + d.goalPlans.reduce((ps, p) => ps + p.tasks.length, 0), 0);
+  const totalMins = goalWeekData.reduce(
+    (s, d) => s + d.goalPlans.reduce((ps, p) => ps + p.tasks.reduce((ts, t) => ts + t.estimatedMinutes, 0), 0),
+    0
+  );
+
+  const s = new Date(weekRange.start + "T00:00:00");
+  const e = new Date(weekRange.end + "T00:00:00");
+  const locale = language === "ja" ? "ja-JP" : "en-US";
+  const rangeLabel = `${s.toLocaleDateString(locale, { month: "numeric", day: "numeric" })} 〜 ${e.toLocaleDateString(locale, { month: "numeric", day: "numeric" })}`;
+
+  if (goalWeekData.length === 0) {
+    return (
+      <div className="flex flex-col gap-4">
+        <header>
+          <p className="text-xs text-[var(--muted)]">{rangeLabel}</p>
+          <h1 className="mt-1 text-2xl font-bold text-[var(--text)]">{language === "ja" ? "週の概要" : "Week Overview"}</h1>
+        </header>
+        <p className="text-sm text-[var(--muted)]">{language === "ja" ? "この週のTODOはありません" : "No TODOs for this week"}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-8">
+      {/* Header */}
+      <header>
+        <p className="text-xs text-[var(--muted)]">{rangeLabel}</p>
+        <h1 className="mt-1 text-2xl font-bold text-[var(--text)]">{language === "ja" ? "週の概要" : "Week Overview"}</h1>
+        <div className="mt-3 flex flex-wrap gap-3">
+          <span className="rounded-full bg-[var(--panel)] px-3 py-1 text-[11px] text-[var(--muted)]">
+            {language === "ja" ? `${totalTasks}件のタスク` : `${totalTasks} tasks`}
+          </span>
+          <span className="rounded-full bg-[var(--panel)] px-3 py-1 text-[11px] text-[var(--muted)]">
+            {language === "ja" ? `約${Math.round(totalMins / 60)}時間` : `~${Math.round(totalMins / 60)}h`}
+          </span>
+          {goalWeekData.map(({ goal }) => (
+            <span key={goal.id} className="flex items-center gap-1.5 rounded-full bg-[var(--panel)] px-3 py-1 text-[11px] text-[var(--muted)]">
+              <span className="h-1.5 w-1.5 rounded-full flex-shrink-0" style={{ background: goal.color }} />
+              {goal.title}
+            </span>
+          ))}
+        </div>
+      </header>
+
+      {/* Section 1: 週初めの状態 */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-[var(--muted-2)]">
+          {language === "ja" ? "週初めの状態" : "Week start"}
+        </h2>
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-5 py-4 flex flex-col gap-3">
+          {goalWeekData.map(({ goal, goalPlans }) => {
+            const firstPlan = goalPlans[0];
+            const firstDayTasks = firstPlan.tasks.slice(0, 2);
+            return (
+              <div key={goal.id} className="flex gap-3">
+                <span className="mt-1 h-2 w-2 flex-shrink-0 rounded-full" style={{ background: goal.color }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-[var(--text)]">{goal.title}</p>
+                  {firstPlan.focus && (
+                    <p className="mt-0.5 text-xs text-[var(--muted)]">{firstPlan.focus}</p>
+                  )}
+                  {firstDayTasks.length > 0 && (
+                    <ul className="mt-1 flex flex-col gap-0.5">
+                      {firstDayTasks.map((t) => (
+                        <li key={t.id} className="text-[11px] text-[var(--muted-2)] leading-relaxed">• {t.text}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Section 2: この週にやること */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-[var(--muted-2)]">
+          {language === "ja" ? "この週にやること" : "This week's plan"}
+        </h2>
+        <div className="flex flex-col gap-4">
+          {goalWeekData.map(({ goal, goalPlans }) => {
+            const allTasks = goalPlans.flatMap((p) => p.tasks);
+            const focusSet = [...new Set(goalPlans.map((p) => p.focus).filter(Boolean))];
+            return (
+              <div key={goal.id} className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-5 py-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ background: goal.color }} />
+                  <p className="text-xs font-semibold text-[var(--text)]">{goal.title}</p>
+                  <span className="ml-auto text-[10px] text-[var(--muted-2)]">
+                    {allTasks.length}{language === "ja" ? "件" : " tasks"} · {Math.round(allTasks.reduce((s, t) => s + t.estimatedMinutes, 0) / 60 * 10) / 10}h
+                  </span>
+                </div>
+                {focusSet.length > 0 && (
+                  <div className="mb-3 flex flex-wrap gap-1.5">
+                    {focusSet.map((f) => (
+                      <span key={f} className="rounded-full bg-white px-2.5 py-0.5 text-[10px] text-[var(--muted)] border border-[var(--border)]">{f}</span>
+                    ))}
+                  </div>
+                )}
+                <ul className="flex flex-col gap-1.5">
+                  {allTasks.map((t) => (
+                    <li key={t.id} className="flex items-start gap-2">
+                      <span className="mt-1.5 h-1 w-1 flex-shrink-0 rounded-full bg-[var(--muted-2)]" />
+                      <span className="text-xs text-[var(--text)] leading-relaxed">{t.text}</span>
+                      {t.estimatedMinutes > 0 && (
+                        <span className="ml-auto flex-shrink-0 text-[10px] text-[var(--muted-2)]">{t.estimatedMinutes}分</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* Section 3: 週末の理想の姿 */}
+      <section className="flex flex-col gap-3">
+        <h2 className="text-xs font-semibold uppercase tracking-widest text-[var(--muted-2)]">
+          {language === "ja" ? "週末の理想の姿" : "End of week goal"}
+        </h2>
+        <div className="rounded-xl border border-[var(--border)] bg-[var(--panel)] px-5 py-4 flex flex-col gap-3">
+          {goalWeekData.map(({ goal, goalPlans }) => {
+            const lastPlan = goalPlans[goalPlans.length - 1];
+            const lastTasks = lastPlan.tasks.slice(-2);
+            return (
+              <div key={goal.id} className="flex gap-3">
+                <span className="mt-1 h-2 w-2 flex-shrink-0 rounded-full" style={{ background: goal.color }} />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-[var(--text)]">{goal.title}</p>
+                  {lastPlan.focus && (
+                    <p className="mt-0.5 text-xs text-[var(--muted)]">{lastPlan.focus}</p>
+                  )}
+                  {lastTasks.length > 0 && (
+                    <ul className="mt-1 flex flex-col gap-0.5">
+                      {lastTasks.map((t) => (
+                        <li key={t.id} className="text-[11px] text-[var(--muted-2)] leading-relaxed">• {t.text}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function CenterPanel({
   goals,
   plans,
   activeDate,
   selectedDate,
+  weekRange,
   language,
   observations,
   onTabSelect,
@@ -137,10 +311,17 @@ export default function CenterPanel({
   const t = UI_TEXT[language];
   const today = new Date().toISOString().split("T")[0];
   const tabs = useMemo(() => {
-    const base: Array<{ date: string; label: string }> = [{ date: today, label: t.today }];
-    if (selectedDate && selectedDate !== today) base.push({ date: selectedDate, label: tabLabel(selectedDate, language) });
+    const base: Array<{ date: string; label: string; weekEnd?: string }> = [{ date: today, label: t.today }];
+    if (weekRange) {
+      const s = new Date(weekRange.start + "T00:00:00");
+      const e = new Date(weekRange.end + "T00:00:00");
+      const label = `${s.getMonth() + 1}/${s.getDate()}〜${e.getMonth() + 1}/${e.getDate()}`;
+      base.push({ date: weekRange.start, label, weekEnd: weekRange.end });
+    } else if (selectedDate && selectedDate !== today) {
+      base.push({ date: selectedDate, label: tabLabel(selectedDate, language) });
+    }
     return base;
-  }, [language, selectedDate, t.today, today]);
+  }, [language, selectedDate, weekRange, t.today, today]);
 
   const items = useMemo(() => buildItems(goals, plans, activeDate), [goals, plans, activeDate]);
   const completed = items.filter((item) => item.task.completed).length;
@@ -281,6 +462,18 @@ export default function CenterPanel({
             ),
           }));
 
+        const goalReflections = allReflections
+          .filter((r) => r.goal_id === goalId)
+          .sort((a, b) => b.date.localeCompare(a.date))
+          .slice(0, 10)
+          .map((r) => ({
+            date: r.date,
+            what_i_learned: r.what_i_learned,
+            what_blocked_me: r.what_blocked_me,
+            mood: r.mood,
+            next_action: r.next_action,
+          }));
+
         const res = await fetch("/api/submit-feedback", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -294,6 +487,7 @@ export default function CenterPanel({
             currentPlans,
             profile: currentProfile,
             otherGoals,
+            recentReflections: goalReflections.length > 0 ? goalReflections : undefined,
             llm: llmPayload(),
           }),
         });
@@ -390,7 +584,7 @@ export default function CenterPanel({
           return (
             <button
               key={tab.date}
-              onClick={() => onTabSelect(tab.date)}
+              onClick={() => onTabSelect(tab.date, tab.weekEnd)}
               className="mr-7 flex h-12 items-center gap-2 border-b-2 text-xs font-medium"
               style={{
                 borderColor: active ? "var(--accent)" : "transparent",
@@ -424,7 +618,9 @@ export default function CenterPanel({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-10 py-7">
         <div className="mx-auto flex max-w-5xl flex-col gap-6">
-          <header className="flex items-start justify-between">
+          {weekRange ? (
+            <WeekSummaryView goals={goals} plans={plans} weekRange={weekRange} language={language} />
+          ) : (<><header className="flex items-start justify-between">
             <div>
               <h1 className="text-2xl font-bold text-[var(--text)]">{tabLabel(activeDate, language)}</h1>
               <p className="mt-1 text-xs text-[var(--muted)]">{formatDate(activeDate, language)}</p>
@@ -769,6 +965,7 @@ export default function CenterPanel({
               )}
             </>
           )}
+        </>)}
         </div>
       </div>
 

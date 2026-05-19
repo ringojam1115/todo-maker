@@ -1,4 +1,4 @@
-import type { Goal, DailyPlansStore, DailyFeedback, LearningProfile, SkillMemo, Reflection, LearningLog, Observation } from "@/types";
+import type { Goal, DailyPlansStore, DailyFeedback, LearningProfile, SkillMemo, Reflection, LearningLog, Observation, WeeklyReviewResult } from "@/types";
 
 const GOALS_KEY = "pln_goals";
 const PLANS_KEY = "pln_plans";
@@ -137,4 +137,27 @@ export function loadObservations(): Observation[] {
 
 export function saveObservations(observations: Observation[]): void {
   localStorage.setItem(OBSERVATIONS_KEY, JSON.stringify(observations));
+}
+
+const WEEKLY_REVIEWS_KEY = "pln_weekly_reviews";
+
+export function loadWeeklyReviews(): WeeklyReviewResult[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem(WEEKLY_REVIEWS_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+export function saveWeeklyReview(review: WeeklyReviewResult): void {
+  const existing = loadWeeklyReviews();
+  const updated = [...existing.filter((r) => r.weekStart !== review.weekStart), review];
+  // keep last 8 weeks
+  localStorage.setItem(WEEKLY_REVIEWS_KEY, JSON.stringify(updated.slice(-8)));
+}
+
+export function loadLatestWeeklyReview(): WeeklyReviewResult | null {
+  const reviews = loadWeeklyReviews();
+  return reviews.length > 0 ? reviews[reviews.length - 1] : null;
 }

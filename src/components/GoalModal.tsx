@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import { v4 as uuidv4 } from "uuid";
-import type { Goal, Material } from "@/types";
+import type { Goal, Material, TimeCommitment } from "@/types";
 import { loadSettings } from "@/lib/settings";
 
 type MaterialSearchState =
@@ -49,11 +49,18 @@ export default function GoalModal({ onClose, onCreate, loading, activeGoals = []
 
   const [step, setStep] = useState<1 | 2 | 3>(1);
 
+  const TIME_COMMITMENT_OPTIONS: { value: TimeCommitment; label: string; desc: string }[] = [
+    { value: "low", label: "少なめ", desc: "30分程度 / 他に忙しい時期" },
+    { value: "medium", label: "普通", desc: "1時間程度 / 毎日コツコツ" },
+    { value: "high", label: "多め", desc: "2時間程度 / 本腰を入れたい" },
+    { value: "very_high", label: "集中的", desc: "3時間以上 / 短期集中" },
+  ];
+
   // Step 1
   const [title, setTitle] = useState("");
   const [deadline, setDeadline] = useState("");
-  const [currentLevel, setCurrentLevel] = useState("");
-  const [dailyMinutes, setDailyMinutes] = useState(60);
+  const [timeCommitment, setTimeCommitment] = useState<TimeCommitment>("medium");
+  const [scheduleNote, setScheduleNote] = useState("");
   const [currentState, setCurrentState] = useState("");
   const [idealState, setIdealState] = useState("");
   const [gapSummary, setGapSummary] = useState("");
@@ -138,8 +145,8 @@ export default function GoalModal({ onClose, onCreate, loading, activeGoals = []
       title: title.trim(),
       description: "",
       deadline,
-      currentLevel: currentLevel.trim(),
-      dailyMinutes,
+      timeCommitment,
+      scheduleNote: scheduleNote.trim(),
       materials,
       current_state: currentState.trim(),
       ideal_state: idealState.trim(),
@@ -279,31 +286,44 @@ export default function GoalModal({ onClose, onCreate, loading, activeGoals = []
                 />
               </div>
 
-              <div className="flex flex-col gap-1">
+              <div className="flex flex-col gap-1.5">
                 <label className="text-xs font-medium" style={{ color: "#666" }}>
-                  現在のレベル
+                  このゴールへの時間のかけ方
                 </label>
-                <input
-                  type="text"
-                  placeholder="例: 現在TOEIC 600点"
-                  value={currentLevel}
-                  onChange={(e) => setCurrentLevel(e.target.value)}
-                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
-                  style={inputStyle}
-                />
+                <div className="grid grid-cols-2 gap-2">
+                  {TIME_COMMITMENT_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      onClick={() => setTimeCommitment(opt.value)}
+                      className="flex flex-col items-start px-3 py-2 rounded-lg text-left transition-colors"
+                      style={{
+                        border: timeCommitment === opt.value ? "2px solid #5c9e2e" : "1px solid #e0e0da",
+                        background: timeCommitment === opt.value ? "#f0f7e8" : "#f9f9f7",
+                      }}
+                    >
+                      <span className="text-xs font-semibold" style={{ color: timeCommitment === opt.value ? "#5c9e2e" : "#1a1a1a" }}>
+                        {opt.label}
+                      </span>
+                      <span className="text-[10px] mt-0.5" style={{ color: "#888" }}>{opt.desc}</span>
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px]" style={{ color: "#aaa" }}>
+                  あくまで目安です。日々の振り返りをもとにAIが柔軟に調整します。
+                </p>
               </div>
 
               <div className="flex flex-col gap-1">
                 <label className="text-xs font-medium" style={{ color: "#666" }}>
-                  1日に使える学習時間（分）
+                  todo作成で考慮して欲しいこと（任意）
                 </label>
-                <input
-                  type="number"
-                  min={10}
-                  max={480}
-                  value={dailyMinutes}
-                  onChange={(e) => setDailyMinutes(Number(e.target.value))}
-                  className="w-full rounded-lg px-3 py-2 text-sm outline-none"
+                <textarea
+                  rows={2}
+                  placeholder="例: 5/30から本格的に取り組みたい。それまでは最小限で。"
+                  value={scheduleNote}
+                  onChange={(e) => setScheduleNote(e.target.value)}
+                  className="w-full rounded-lg px-3 py-2 text-sm outline-none resize-none"
                   style={inputStyle}
                 />
               </div>
@@ -488,13 +508,8 @@ export default function GoalModal({ onClose, onCreate, loading, activeGoals = []
                         (1000 * 60 * 60 * 24)
                     )
                   : 0;
-                const totalTime = daysLeft * dailyMinutes;
-                const otherDailyMinutes = activeGoals.reduce((s, g) => s + (g.dailyMinutes ?? 0), 0);
-                const totalDailyCommitment = dailyMinutes + otherDailyMinutes;
                 const warnings: string[] = [];
                 if (daysLeft < 7) warnings.push("残り日数が7日未満です。目標達成が難しい可能性があります。");
-                if (totalTime < 600) warnings.push(`総学習時間が${totalTime}分（約${Math.round(totalTime / 60)}時間）と少ない可能性があります。`);
-                if (totalDailyCommitment > 360) warnings.push(`他の目標と合わせた1日の学習時間が${totalDailyCommitment}分になります。無理のない範囲で設定しましょう。`);
                 if (warnings.length === 0) return null;
                 return (
                   <div className="flex flex-col gap-2">
@@ -514,12 +529,12 @@ export default function GoalModal({ onClose, onCreate, loading, activeGoals = []
                 {[
                   ["タイトル", title],
                   ["期限", deadline],
-                  currentLevel ? ["現在のレベル", currentLevel] : null,
-                  ["1日の学習時間", `${dailyMinutes}分`],
+                  ["時間のかけ方", TIME_COMMITMENT_OPTIONS.find((o) => o.value === timeCommitment)?.label ?? timeCommitment],
                   [
                     "教材",
                     materials.length > 0 ? materials.map((m) => m.name).join("、") : "未設定",
                   ],
+                  scheduleNote ? ["考慮事項", scheduleNote] : null,
                   currentState ? ["現状", currentState] : null,
                   idealState ? ["理想", idealState] : null,
                   gapSummary ? ["ギャップ", gapSummary] : null,
