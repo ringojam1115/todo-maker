@@ -12,6 +12,7 @@ interface RightTimelineProps {
   width: number;
   onWidthChange: (width: number) => void;
   onSelectDate: (date: string) => void;
+  onSelectWeek: (start: string, end: string) => void;
 }
 
 interface GoalRangeEntry {
@@ -72,19 +73,21 @@ function getDailyEntries(goals: Goal[], plans: DailyPlansStore, date: string) {
 
 function PeriodCard({
   rangeStart,
+  rangeEnd,
   label,
   entries,
   active,
   language,
-  onSelectDate,
+  onSelectWeek,
   variant,
 }: {
   rangeStart: string;
+  rangeEnd: string;
   label: string;
   entries: GoalRangeEntry[];
   active: boolean;
   language: AppLanguage;
-  onSelectDate: (d: string) => void;
+  onSelectWeek: (start: string, end: string) => void;
   variant: "weekly" | "monthly";
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -102,7 +105,7 @@ function PeriodCard({
     >
       {/* Header row: label (clickable) + expand toggle */}
       <div className="flex items-center gap-2 px-3 pt-2.5">
-        <button onClick={() => onSelectDate(rangeStart)} className="min-w-0 flex-1 text-left">
+        <button onClick={() => onSelectWeek(rangeStart, rangeEnd)} className="min-w-0 flex-1 text-left">
           <span className="text-[11px] font-semibold text-[var(--text)]">{label}</span>
         </button>
         {focusItems.length > 0 && (
@@ -122,8 +125,8 @@ function PeriodCard({
         )}
       </div>
 
-      {/* Bar + counts — clicking selects the date */}
-      <div onClick={() => onSelectDate(rangeStart)} className="cursor-pointer px-3 pb-2 pt-2">
+      {/* Bar + counts — clicking selects the week */}
+      <div onClick={() => onSelectWeek(rangeStart, rangeEnd)} className="cursor-pointer px-3 pb-2 pt-2">
         {/* Stacked combined bar */}
         <div className="flex h-1.5 overflow-hidden rounded-full bg-[var(--panel)]">
           {entries.map((entry) => {
@@ -173,6 +176,7 @@ export default function RightTimeline({
   width,
   onWidthChange,
   onSelectDate,
+  onSelectWeek,
 }: RightTimelineProps) {
   const t = UI_TEXT[language];
   const today = new Date().toISOString().split("T")[0];
@@ -295,11 +299,12 @@ export default function RightTimeline({
                   <PeriodCard
                     key={bucket.start}
                     rangeStart={bucket.start}
+                    rangeEnd={bucket.end}
                     label={rangeLabel(bucket.start, bucket.end, language)}
                     entries={entries}
                     active={active}
                     language={language}
-                    onSelectDate={onSelectDate}
+                    onSelectWeek={onSelectWeek}
                     variant="weekly"
                   />
                 );
@@ -317,11 +322,12 @@ export default function RightTimeline({
                     <PeriodCard
                       key={bucket.ym}
                       rangeStart={bucket.start}
+                      rangeEnd={bucket.end}
                       label={monthLabel(bucket.ym, language)}
                       entries={entries}
                       active={active}
                       language={language}
-                      onSelectDate={onSelectDate}
+                      onSelectWeek={onSelectWeek}
                       variant="monthly"
                     />
                   );

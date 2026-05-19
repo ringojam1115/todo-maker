@@ -1,24 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import type { AppLanguage, Goal, Observation } from "@/types";
-import { loadFeedbacks } from "@/lib/storage";
-
-interface WeeklyReview {
-  progressed: string[];
-  struggled: string[];
-  changed_observations: string[];
-  gap_diff: string;
-  next_week_policy: string;
-  reduce_todos: string[];
-  increase_todos: string[];
-}
+import type { AppLanguage, Goal, Observation, WeeklyReviewResult } from "@/types";
+import { loadFeedbacks, loadReflections } from "@/lib/storage";
 
 interface WeeklyReviewModalProps {
   goals: Goal[];
   observations: Observation[];
   language: AppLanguage;
   onClose: () => void;
+  onSave: (review: WeeklyReviewResult) => void;
   llmPayload: () => { provider: string; apiKey?: string; language: AppLanguage };
 }
 
@@ -50,14 +41,22 @@ function Section({ title, items, color }: { title: string; items: string[]; colo
   );
 }
 
+const MOTIVATION_LABEL: Record<string, { ja: string; color: string }> = {
+  high:     { ja: "高い",     color: "#5c9e2e" },
+  medium:   { ja: "普通",     color: "#888" },
+  low:      { ja: "低め",     color: "#b45309" },
+  shifting: { ja: "変化中",   color: "#7c3aed" },
+};
+
 export default function WeeklyReviewModal({
   goals,
   observations,
   language,
   onClose,
+  onSave,
   llmPayload,
 }: WeeklyReviewModalProps) {
-  const [review, setReview] = useState<WeeklyReview | null>(null);
+  const [review, setReview] = useState<WeeklyReviewResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,6 +75,19 @@ export default function WeeklyReviewModal({
         (f) => f.date >= weekStartStr && f.date <= weekEndStr
       );
 
+      const allReflections = loadReflections();
+      const weekReflections = allReflections
+        .filter((r) => r.date >= weekStartStr && r.date <= weekEndStr)
+        .map((r) => ({
+          goal_id: r.goal_id,
+          date: r.date,
+          what_i_did: r.what_i_did,
+          what_i_learned: r.what_i_learned,
+          what_blocked_me: r.what_blocked_me,
+          mood: r.mood,
+          next_action: r.next_action,
+        }));
+
       const res = await fetch("/api/weekly-review", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -90,6 +102,7 @@ export default function WeeklyReviewModal({
           })),
           feedbacks: weekFeedbacks,
           observations,
+          reflections: weekReflections.length > 0 ? weekReflections : undefined,
           weekStart: weekStartStr,
           weekEnd: weekEndStr,
           llm: llmPayload(),
@@ -98,7 +111,15 @@ export default function WeeklyReviewModal({
 
       if (!res.ok) throw new Error(language === "ja" ? "生成に失敗しました" : "Generation failed");
       const data = await res.json();
-      setReview(data);
+      const result: WeeklyReviewResult = {
+        ...data,
+        goal_perception: data.goal_perception ?? [],
+        weekStart: weekStartStr,
+        weekEnd: weekEndStr,
+        createdAt: new Date().toISOString(),
+      };
+      setReview(result);
+      onSave(result);
     } catch (e) {
       setError(e instanceof Error ? e.message : language === "ja" ? "エラーが発生しました" : "Something went wrong");
     } finally {
@@ -118,7 +139,7 @@ export default function WeeklyReviewModal({
       style={{ backgroundColor: "rgba(0,0,0,0.3)" }}
     >
       <div
-        className="rounded-xl shadow-xl w-[600px] max-w-full mx-4 flex flex-col"
+        className="rounded-xl shadow-xl w-[620px] max-w-full mx-4 flex flex-col"
         style={{ background: "#fff", border: "1px solid #e0e0da", maxHeight: "90vh" }}
       >
         {/* Header */}
@@ -150,8 +171,8 @@ export default function WeeklyReviewModal({
               <div className="rounded-lg p-4 text-center" style={{ background: "#f9f9f7", border: "1px solid #e0e0da" }}>
                 <p className="text-sm text-[var(--muted)] leading-relaxed max-w-sm">
                   {language === "ja"
-                    ? "今週の振り返りをAIが整理します。断定ではなく観測・傾向として提示されます。"
-                    : "AI will summarize your week as observations and tendencies, not judgments."}
+                    ? "今週の振り返りをAIが整理します。断定ではなく観測・傾向として提示されます。目標に対する認識の変化も含めます。"
+                    : "AI will summarize your week as observations and tendencies, including shifts in how you perceive your goals."}
                 </p>
               </div>
               <button
@@ -207,6 +228,57 @@ export default function WeeklyReviewModal({
                   <p className="text-sm leading-relaxed text-[var(--text)] rounded-md bg-[var(--panel)] px-4 py-3">
                     {review.gap_diff}
                   </p>
+                </div>
+              )}
+
+              {/* Goal Perception Section */}
+              {review.goal_perception && review.goal_perception.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.15em]" style={{ color: "#888" }}>
+                    {language === "ja" ? "目標に対する認識の予測" : "Perceived goal alignment"}
+                  </p>
+                  <p className="text-[10px] leading-relaxed" style={{ color: "#aaa" }}>
+                    {language === "ja"
+                      ? "振り返りの内容からAIが読み取った傾向です。あくまで仮説であり、決めつけではありません。"
+                      : "AI-inferred tendencies from your reflections — hypotheses, not conclusions."}
+                  </p>
+                  <div className="flex flex-col gap-3 mt-1">
+                    {review.goal_perception.map((p) => {
+                      const motiv = MOTIVATION_LABEL[p.motivation_signal] ?? { ja: p.motivation_signal, color: "#888" };
+                      const goal = goals.find((g) => g.id === p.goalId);
+                      return (
+                        <div
+                          key={p.goalId}
+                          className="rounded-lg px-4 py-3 flex flex-col gap-1.5"
+                          style={{ background: "#f9f9f7", border: "1px solid #e0e0da" }}
+                        >
+                          <div className="flex items-center gap-2">
+                            {goal && (
+                              <span className="h-2 w-2 rounded-full flex-shrink-0" style={{ background: goal.color }} />
+                            )}
+                            <p className="text-xs font-semibold" style={{ color: "#1a1a1a" }}>{p.goalTitle}</p>
+                            <span
+                              className="ml-auto text-[10px] rounded-full px-2 py-0.5 font-medium"
+                              style={{ background: motiv.color + "22", color: motiv.color, border: `1px solid ${motiv.color}44` }}
+                            >
+                              {language === "ja" ? `モチベ: ${motiv.ja}` : `Motivation: ${p.motivation_signal}`}
+                            </span>
+                            <span className="text-[10px]" style={{ color: "#bbb" }}>
+                              {language === "ja" ? `確信度: ${Math.round(p.confidence * 100)}%` : `${Math.round(p.confidence * 100)}% confidence`}
+                            </span>
+                          </div>
+                          <p className="text-xs leading-relaxed" style={{ color: "#555" }}>
+                            {p.perceived_direction}
+                          </p>
+                          {p.possible_drift && (
+                            <p className="text-[11px] leading-relaxed rounded px-2 py-1" style={{ color: "#7c3aed", background: "#f5f0ff", border: "1px solid #e4d9ff" }}>
+                              {language === "ja" ? "変化の兆候: " : "Possible drift: "}{p.possible_drift}
+                            </p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
               )}
 

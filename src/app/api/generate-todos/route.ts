@@ -1,11 +1,26 @@
 import { NextResponse } from "next/server";
-import type { Material } from "@/types";
+import type { Material, TimeCommitment, LearningProfile, WeeklyReviewResult } from "@/types";
 import type { LLMRequestSettings } from "@/lib/llm";
 import { callTextLLM, languageInstruction, parseJsonText } from "@/lib/llm";
 
+const COMMITMENT_MINUTES: Record<TimeCommitment, number> = {
+  low: 30,
+  medium: 60,
+  high: 120,
+  very_high: 180,
+};
+
+const COMMITMENT_LABEL: Record<TimeCommitment, string> = {
+  low: "少なめ（目安30分/日）",
+  medium: "普通（目安1時間/日）",
+  high: "多め（目安2時間/日）",
+  very_high: "集中的（目安3時間以上/日）",
+};
+
 interface OtherGoal {
   title: string;
-  dailyMinutes: number;
+  timeCommitment?: TimeCommitment;
+  dailyMinutes?: number;
   daysLeft: number;
 }
 
@@ -28,8 +43,8 @@ export async function POST(request: Request) {
       goalTitle,
       deadline,
       today,
-      currentLevel,
-      dailyMinutes,
+      timeCommitment,
+      scheduleNote,
       materials,
       calendarSlots,
       otherGoals,
@@ -38,13 +53,15 @@ export async function POST(request: Request) {
       gapSummary,
       recentReflections,
       observations,
+      learningProfile,
+      weeklyReview,
       llm,
     }: {
       goalTitle: string;
       deadline: string;
       today: string;
-      currentLevel?: string;
-      dailyMinutes?: number;
+      timeCommitment?: TimeCommitment;
+      scheduleNote?: string;
       materials?: Material[];
       calendarSlots?: Record<string, number>;
       otherGoals?: OtherGoal[];
@@ -53,6 +70,8 @@ export async function POST(request: Request) {
       gapSummary?: string;
       recentReflections?: RecentReflection[];
       observations?: ObservationInput[];
+      learningProfile?: LearningProfile;
+      weeklyReview?: Pick<WeeklyReviewResult, 'next_week_policy' | 'reduce_todos' | 'increase_todos' | 'goal_perception' | 'weekStart'>;
       llm?: LLMRequestSettings;
     } = await request.json();
 
@@ -62,7 +81,8 @@ export async function POST(request: Request) {
       (deadlineDate.getTime() - todayDate.getTime()) / (1000 * 60 * 60 * 24)
     );
 
-    const minsPerDay = dailyMinutes ?? 60;
+    const commitment = timeCommitment ?? "medium";
+    const minsPerDay = COMMITMENT_MINUTES[commitment];
 
     const materialsText =
       materials && materials.length > 0
@@ -89,7 +109,7 @@ ${Object.entries(calendarSlots)
     return `${date}: ${mins}分 → ${budget}`;
   })
   .join("\n")}
-（記載のない日は1日${minsPerDay}分を想定）
+（記載のない日は目安${minsPerDay}分を想定）
 `
         : "";
 
@@ -97,8 +117,10 @@ ${Object.entries(calendarSlots)
       otherGoals && otherGoals.length > 0
         ? `
 ## 他の学習目標
-${otherGoals.map((g) => `- ${g.title}: 残り${g.daysLeft}日、1日${g.dailyMinutes}分`).join("\n")}
-合計1日の学習時間目安: ${otherGoals.reduce((s, g) => s + g.dailyMinutes, 0) + minsPerDay}分
+${otherGoals.map((g) => {
+  const mins = g.timeCommitment ? COMMITMENT_MINUTES[g.timeCommitment] : (g.dailyMinutes ?? 60);
+  return `- ${g.title}: 残り${g.daysLeft}日、時間のかけ方目安: ${mins}分/日`;
+}).join("\n")}
 `
         : "";
 
@@ -111,6 +133,18 @@ ${otherGoals.map((g) => `- ${g.title}: 残り${g.daysLeft}日、1日${g.dailyMin
 ギャップ: ${gapSummary || "未設定"}
 `
         : "";
+
+    const scheduleNoteSection = scheduleNote
+      ? `
+## ユーザーからの要望（必ず守ること）
+${scheduleNote}
+
+▶ スケジュール解釈の例：
+- 「○月○日から本格的にやりたい」→ それ以前の日付はタスクを最小限（1件以下）またはスキップし、指定日以降から通常のプランを開始する
+- 「○日までは最小限で」→ その期間はlight・1タスク/日以下にする
+- 「○日まで別の目標に集中」→ その間このゴールのタスクはゼロにしてよい
+`
+      : "";
 
     const reflectionsSection =
       recentReflections && recentReflections.length > 0
@@ -134,6 +168,58 @@ ${observations.map((o) => `- [${o.type}] ${o.content} (確信度: ${Math.round(o
 `
         : "";
 
+    // averageTimeRatio: if > 1.1, scale up estimatedMinutes
+    const timeRatio = learningProfile?.averageTimeRatio ?? 1;
+    const timeRatioNote =
+      timeRatio > 1.1
+        ? `
+## 実績ベースの時間補正（重要）
+過去の実績から、このユーザーは予定時間より平均${Math.round((timeRatio - 1) * 100)}%多くかかる傾向があります。
+estimatedMinutesはすべて×${timeRatio.toFixed(2)}で計算してから設定してください。
+例：「30分」と書きたい場合は実際に${Math.round(30 * timeRatio)}分と設定する。
+`
+        : timeRatio < 0.9
+        ? `
+## 実績ベースの時間補正
+過去の実績から、このユーザーは予定より平均${Math.round((1 - timeRatio) * 100)}%早く完了する傾向があります。
+estimatedMinutesはやや短めに設定しても問題ありません。
+`
+        : "";
+
+    const profileSection = learningProfile && learningProfile.totalStudyMinutes > 0
+      ? `
+## 学習プロフィール（過去の実績）
+平均達成率: ${Math.round(learningProfile.averageCompletionRate)}%
+難易度トレンド: ${learningProfile.difficultyTrend}（improving=向上中 / stable=安定 / struggling=苦戦中）
+総学習時間: ${Math.round(learningProfile.totalStudyMinutes / 60)}時間${
+  learningProfile.materialAffinities.length > 0
+    ? `\n教材との相性:\n${learningProfile.materialAffinities
+        .map((m) => `  - ${m.materialName}: 達成率${Math.round(m.completionRate)}%、難易度平均${m.difficultyAverage.toFixed(1)}`)
+        .join("\n")}`
+    : ""
+}
+`
+      : "";
+
+    const weeklyReviewSection = weeklyReview
+      ? `
+## 前回の週次レビュー（${weeklyReview.weekStart}週）からの引き継ぎ
+来週の方針: ${weeklyReview.next_week_policy}
+${weeklyReview.reduce_todos.length > 0 ? `削るべきTODOの傾向: ${weeklyReview.reduce_todos.join("、")}` : ""}
+${weeklyReview.increase_todos.length > 0 ? `増やすべきTODOの傾向: ${weeklyReview.increase_todos.join("、")}` : ""}
+${
+  weeklyReview.goal_perception && weeklyReview.goal_perception.length > 0
+    ? `目標認識の予測:\n${weeklyReview.goal_perception
+        .map(
+          (p) =>
+            `  - ${p.goalTitle}: ${p.perceived_direction}（モチベーション: ${p.motivation_signal}${p.possible_drift ? `、変化の兆候: ${p.possible_drift}` : ""}）`
+        )
+        .join("\n")}`
+    : ""
+}
+`
+      : "";
+
     const prompt = `
 あなたは学習計画の専門家です。
 以下の情報をもとに、「理論上正しい」ではなく「その人が実行可能」なTODOプランを作成してください。
@@ -142,13 +228,19 @@ ${languageInstruction(llm?.language)}
 ## 目標
 タイトル: ${goalTitle}
 期限: ${deadline}（残り${daysLeft}日）
-現在のレベル: ${currentLevel || "未設定"}
-1日の学習時間: ${minsPerDay}分
+時間のかけ方: ${COMMITMENT_LABEL[commitment]}
 今日の日付: ${today}
+
+※「時間のかけ方」はユーザーの意向の目安であり、厳密な制約ではありません。
+　日々の振り返り・観測・カレンダー・体調などを優先し、柔軟に調整してください。
 
 ## 使用教材
 ${materialsText}
+${scheduleNoteSection}
 ${gapSection}
+${timeRatioNote}
+${profileSection}
+${weeklyReviewSection}
 ${reflectionsSection}
 ${observationsSection}
 ${calendarSection}
@@ -159,8 +251,7 @@ ${otherGoalsSection}
   ✅ 良い例：「公式問題集Vol.2 Part3 Q41-52を解き、全問解説を読む」
   ❌ 悪い例：「リスニング問題を解く」
 - 教材が指定されている場合は教材名・ページ数・問題番号・章名を含める
-- ただし教材だけで全てをカバーしようとしないこと
-- 1タスクは${Math.round(minsPerDay / 3)}〜${Math.round(minsPerDay / 2)}分で完了できる粒度にする
+- 1タスクは${Math.round(minsPerDay / 3)}〜${Math.round(minsPerDay / 2)}分で完了できる粒度にする（あくまで目安）
 - 1日${Math.ceil(minsPerDay / 60)}〜${Math.ceil(minsPerDay / 60) + 1}タスクに絞る（詰め込みすぎない）
 - estimatedMinutesは現実的な数値にする
 - カレンダーで空き時間が少ない日はタスク数を減らし、energy_levelをlightにする
@@ -175,8 +266,8 @@ ${otherGoalsSection}
 - 空き時間が30分以下の日はlightのみにする
 
 ## reasonの書き方
-各タスクにreasonを1〜2文で付ける。観測・振り返りを根拠として使う。
-例: 「最近30分以内のタスクの達成率が高いため」「先日復習が重いと記録されていたため」
+各タスクにreasonを1〜2文で付ける。観測・振り返り・ユーザーの要望を根拠として使う。
+例: 「最近30分以内のタスクの達成率が高いため」「ユーザーの要望により本格始動前の準備タスク」
 
 ## プランの粒度
 - 今日から7日間は、毎日分のTODOを作る
@@ -199,7 +290,7 @@ ${otherGoalsSection}
         "text": "具体的なタスクの説明",
         "estimatedMinutes": 45,
         "energy_level": "deep" | "medium" | "light",
-        "reason": "このタスクを選んだ理由（観測・振り返りを根拠に）",
+        "reason": "このタスクを選んだ理由（観測・振り返り・ユーザー要望を根拠に）",
         "detail": "今日のTODOの場合のみ、具体的な進め方と完了条件"
       }
     ]

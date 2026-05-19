@@ -8,6 +8,8 @@ export interface Material {
   imageUrl?: string
 }
 
+export type TimeCommitment = 'low' | 'medium' | 'high' | 'very_high'
+
 export interface Goal {
   id: string
   title: string
@@ -15,8 +17,10 @@ export interface Goal {
   deadline: string
   createdAt: string
   color: string
-  currentLevel: string
-  dailyMinutes: number
+  currentLevel?: string
+  dailyMinutes?: number
+  timeCommitment?: TimeCommitment
+  scheduleNote?: string
   materials: Material[]
   current_state?: string
   ideal_state?: string
@@ -131,6 +135,29 @@ export interface Observation {
   created_at: string
   last_seen_at: string
   expires_at: string
+}
+
+export interface GoalPerception {
+  goalId: string
+  goalTitle: string
+  perceived_direction: string
+  motivation_signal: 'high' | 'medium' | 'low' | 'shifting'
+  possible_drift?: string
+  confidence: number
+}
+
+export interface WeeklyReviewResult {
+  progressed: string[]
+  struggled: string[]
+  changed_observations: string[]
+  gap_diff: string
+  next_week_policy: string
+  reduce_todos: string[]
+  increase_todos: string[]
+  goal_perception: GoalPerception[]
+  weekStart: string
+  weekEnd: string
+  createdAt: string
 }
 
 export type LLMProvider = 'openai' | 'claude' | 'gemini'

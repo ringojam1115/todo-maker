@@ -15,6 +15,7 @@ export async function POST(request: Request) {
       currentPlans,
       profile,
       otherGoals,
+      recentReflections,
       llm,
     }: {
       goal: Goal;
@@ -26,6 +27,7 @@ export async function POST(request: Request) {
       currentPlans: DailyPlan[];
       profile: LearningProfile;
       otherGoals?: Array<{ title: string; dailyMinutes: number; remainingDays: number }>;
+      recentReflections?: Array<{ date: string; what_i_learned: string; what_blocked_me: string; mood: string; next_action: string }>;
       llm?: LLMRequestSettings;
     } = await request.json();
 
@@ -88,6 +90,19 @@ export async function POST(request: Request) {
       updatedAt: new Date().toISOString(),
     };
 
+    const reflectionsSection = recentReflections && recentReflections.length > 0
+      ? `
+## 過去の振り返りパターン（再発防止・継続強化に活用）
+${recentReflections
+  .slice(-5)
+  .map(
+    (r) =>
+      `[${r.date}] 学び: ${r.what_i_learned || "-"} / 詰まり: ${r.what_blocked_me || "-"} / 気分: ${r.mood || "-"} / 次のアクション: ${r.next_action || "-"}`
+  )
+  .join("\n")}
+`
+      : "";
+
     // --- Build prompt for plan optimization ---
     const prompt = `
 あなたは学習コーチです。
@@ -114,30 +129,31 @@ ${taskFeedbacks
 
 ## ユーザーの学習プロフィール（過去の傾向）
 平均達成率: ${Math.round(updatedProfile.averageCompletionRate)}%
-時間の読み: 予定より平均${Math.round((updatedProfile.averageTimeRatio - 1) * 100)}%多くかかる傾向
+時間の読み: 予定より平均${Math.round((updatedProfile.averageTimeRatio - 1) * 100)}%多くかかる傾向（比率: ${updatedProfile.averageTimeRatio.toFixed(2)}）
 教材との相性:
 ${
   updatedProfile.materialAffinities
     .map(
       (m) =>
-        `・${m.materialName}: 達成率${Math.round(m.completionRate)}%、難易度平均${m.difficultyAverage.toFixed(1)}`
+        `・${m.materialName}: 達成率${Math.round(m.completionRate)}%、難易度平均${m.difficultyAverage.toFixed(1)}、累計${m.totalMinutes}分`
     )
     .join("\n") || "データなし"
 }
-
+${reflectionsSection}
 ${
   otherGoals && otherGoals.length > 0
     ? `## 他の学習目標（全体の負荷バランス参考）
 ${otherGoals
   .map((g) => `- ${g.title}: 残り${g.remainingDays}日、1日${g.dailyMinutes}分`)
   .join("\n")}
-合計1日学習時間: ${otherGoals.reduce((s, g) => s + g.dailyMinutes, 0) + goal.dailyMinutes}分
+合計1日学習時間目安: ${otherGoals.reduce((s, g) => s + g.dailyMinutes, 0) + (goal.dailyMinutes ?? 60)}分
 
 `
     : ""
 }## 最適化のルール
 - 達成率が60%以下のタスクは翌日に持ち越すか、分割して小さくする
-- 実際の時間が予定より常に長い場合は、estimatedMinutesを実績ベースに修正する
+- 時間比率が1.1以上の場合（実績が予定より長い）: estimatedMinutesを×${updatedProfile.averageTimeRatio.toFixed(2)}で再設定する
+- 過去の振り返りで同じ「詰まり」が繰り返されている場合: そのパターンを避けるようにタスクを調整する
 - 難しいと評価された教材のタスクは量を減らす
 - コンディションが低い日が続く場合は全体のタスク量を減らす
 - 達成率が高く「簡単」と評価した場合は難易度を上げるかタスク量を増やす

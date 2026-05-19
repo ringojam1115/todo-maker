@@ -2,7 +2,7 @@
 
 import { useState, useRef } from "react";
 import { v4 as uuidv4 } from "uuid";
-import type { Goal, Material } from "@/types";
+import type { Goal, Material, TimeCommitment } from "@/types";
 import { loadSettings } from "@/lib/settings";
 
 interface GoalEditModalProps {
@@ -38,13 +38,20 @@ function llmPayload() {
   };
 }
 
+const TIME_COMMITMENT_OPTIONS: { value: TimeCommitment; label: string; desc: string }[] = [
+  { value: "low", label: "少なめ", desc: "30分程度 / 他に忙しい時期" },
+  { value: "medium", label: "普通", desc: "1時間程度 / 毎日コツコツ" },
+  { value: "high", label: "多め", desc: "2時間程度 / 本腰を入れたい" },
+  { value: "very_high", label: "集中的", desc: "3時間以上 / 短期集中" },
+];
+
 export default function GoalEditModal({ goal, onClose, onSave, loading }: GoalEditModalProps) {
   const today = new Date().toISOString().split("T")[0];
 
   const [title, setTitle] = useState(goal.title);
   const [deadline, setDeadline] = useState(goal.deadline);
-  const [currentLevel, setCurrentLevel] = useState(goal.currentLevel ?? "");
-  const [dailyMinutes, setDailyMinutes] = useState(goal.dailyMinutes ?? 60);
+  const [timeCommitment, setTimeCommitment] = useState<TimeCommitment>(goal.timeCommitment ?? "medium");
+  const [scheduleNote, setScheduleNote] = useState(goal.scheduleNote ?? "");
   const [materials, setMaterials] = useState<Material[]>(goal.materials ?? []);
   const [currentState, setCurrentState] = useState(goal.current_state ?? "");
   const [idealState, setIdealState] = useState(goal.ideal_state ?? "");
@@ -126,8 +133,8 @@ export default function GoalEditModal({ goal, onClose, onSave, loading }: GoalEd
         ...goal,
         title: title.trim(),
         deadline,
-        currentLevel: currentLevel.trim(),
-        dailyMinutes,
+        timeCommitment,
+        scheduleNote: scheduleNote.trim(),
         materials,
         current_state: currentState.trim(),
         ideal_state: idealState.trim(),
@@ -191,14 +198,42 @@ export default function GoalEditModal({ goal, onClose, onSave, loading }: GoalEd
             <input type="date" min={today} value={deadline} onChange={(e) => setDeadline(e.target.value)} className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={inputStyle} />
           </div>
 
-          <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium" style={{ color: "#666" }}>現在のレベル</label>
-            <input type="text" value={currentLevel} onChange={(e) => setCurrentLevel(e.target.value)} placeholder="例: TOEIC 650点" className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={inputStyle} />
+          <div className="flex flex-col gap-1.5">
+            <label className="text-xs font-medium" style={{ color: "#666" }}>このゴールへの時間のかけ方</label>
+            <div className="grid grid-cols-2 gap-2">
+              {TIME_COMMITMENT_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => setTimeCommitment(opt.value)}
+                  className="flex flex-col items-start px-3 py-2 rounded-lg text-left transition-colors"
+                  style={{
+                    border: timeCommitment === opt.value ? "2px solid #5c9e2e" : "1px solid #e0e0da",
+                    background: timeCommitment === opt.value ? "#f0f7e8" : "#f9f9f7",
+                  }}
+                >
+                  <span className="text-xs font-semibold" style={{ color: timeCommitment === opt.value ? "#5c9e2e" : "#1a1a1a" }}>
+                    {opt.label}
+                  </span>
+                  <span className="text-[10px] mt-0.5" style={{ color: "#888" }}>{opt.desc}</span>
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px]" style={{ color: "#aaa" }}>
+              あくまで目安です。日々の振り返りをもとにAIが柔軟に調整します。
+            </p>
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-xs font-medium" style={{ color: "#666" }}>1日の学習時間（分）</label>
-            <input type="number" min={10} max={480} value={dailyMinutes} onChange={(e) => setDailyMinutes(Number(e.target.value))} className="w-full rounded-lg px-3 py-2 text-sm outline-none" style={inputStyle} />
+            <label className="text-xs font-medium" style={{ color: "#666" }}>todo作成で考慮して欲しいこと（任意）</label>
+            <textarea
+              rows={2}
+              placeholder="例: 5/30から本格的に取り組みたい。それまでは最小限で。"
+              value={scheduleNote}
+              onChange={(e) => setScheduleNote(e.target.value)}
+              className="w-full rounded-lg px-3 py-2 text-sm outline-none resize-none"
+              style={inputStyle}
+            />
           </div>
 
           {/* Materials */}
