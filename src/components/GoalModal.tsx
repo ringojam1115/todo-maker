@@ -54,6 +54,9 @@ export default function GoalModal({ onClose, onCreate, loading, activeGoals = []
   const [deadline, setDeadline] = useState("");
   const [currentLevel, setCurrentLevel] = useState("");
   const [dailyMinutes, setDailyMinutes] = useState(60);
+  const [currentState, setCurrentState] = useState("");
+  const [idealState, setIdealState] = useState("");
+  const [gapSummary, setGapSummary] = useState("");
 
   // Step 2
   const [materials, setMaterials] = useState<Material[]>([]);
@@ -138,6 +141,9 @@ export default function GoalModal({ onClose, onCreate, loading, activeGoals = []
       currentLevel: currentLevel.trim(),
       dailyMinutes,
       materials,
+      current_state: currentState.trim(),
+      ideal_state: idealState.trim(),
+      gap_summary: gapSummary.trim(),
     });
   }
 
@@ -300,6 +306,48 @@ export default function GoalModal({ onClose, onCreate, loading, activeGoals = []
                   className="w-full rounded-lg px-3 py-2 text-sm outline-none"
                   style={inputStyle}
                 />
+              </div>
+
+              <div
+                className="rounded-lg p-3 flex flex-col gap-3"
+                style={{ background: "#f9f9f7", border: "1px solid #e0e0da" }}
+              >
+                <p className="text-[11px] font-semibold" style={{ color: "#5c9e2e" }}>
+                  現状・理想・ギャップ（任意）
+                </p>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium" style={{ color: "#666" }}>現状</label>
+                  <textarea
+                    rows={2}
+                    placeholder="例：自己紹介は話せるが深掘り質問に弱い"
+                    value={currentState}
+                    onChange={(e) => setCurrentState(e.target.value)}
+                    className="w-full rounded-lg px-3 py-2 text-sm outline-none resize-none"
+                    style={inputStyle}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium" style={{ color: "#666" }}>理想</label>
+                  <textarea
+                    rows={2}
+                    placeholder="例：日本語でも英語でも自然に受け答えできる"
+                    value={idealState}
+                    onChange={(e) => setIdealState(e.target.value)}
+                    className="w-full rounded-lg px-3 py-2 text-sm outline-none resize-none"
+                    style={inputStyle}
+                  />
+                </div>
+                <div className="flex flex-col gap-1">
+                  <label className="text-xs font-medium" style={{ color: "#666" }}>ギャップ</label>
+                  <textarea
+                    rows={2}
+                    placeholder="例：即答力不足、口頭練習不足"
+                    value={gapSummary}
+                    onChange={(e) => setGapSummary(e.target.value)}
+                    className="w-full rounded-lg px-3 py-2 text-sm outline-none resize-none"
+                    style={inputStyle}
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -472,6 +520,9 @@ export default function GoalModal({ onClose, onCreate, loading, activeGoals = []
                     "教材",
                     materials.length > 0 ? materials.map((m) => m.name).join("、") : "未設定",
                   ],
+                  currentState ? ["現状", currentState] : null,
+                  idealState ? ["理想", idealState] : null,
+                  gapSummary ? ["ギャップ", gapSummary] : null,
                 ]
                   .filter((item): item is [string, string] => item !== null)
                   .map(([label, value]) => (

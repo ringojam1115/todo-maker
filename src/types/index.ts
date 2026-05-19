@@ -18,7 +18,12 @@ export interface Goal {
   currentLevel: string
   dailyMinutes: number
   materials: Material[]
+  current_state?: string
+  ideal_state?: string
+  gap_summary?: string
 }
+
+export type EnergyLevel = 'deep' | 'medium' | 'light'
 
 export interface Task {
   id: string
@@ -30,6 +35,8 @@ export interface Task {
   artifact?: string
   actualMinutes?: number
   difficulty?: Difficulty
+  energy_level?: EnergyLevel
+  reason?: string
 }
 
 export interface DailyPlan {
@@ -90,6 +97,40 @@ export interface SkillMemo {
   skills: string
   source: 'deleted' | 'completed'
   createdAt: string
+}
+
+export interface Reflection {
+  id: string
+  task_id: string
+  goal_id: string
+  date: string
+  what_i_did: string
+  what_i_learned: string
+  what_blocked_me: string
+  mood: string
+  next_action: string
+  created_at: string
+}
+
+export interface LearningLog {
+  id: string
+  date: string
+  content: string
+  related_goal_id: string
+  created_at: string
+}
+
+export type ObservationType = 'tendency' | 'interest' | 'pattern' | 'struggle'
+
+export interface Observation {
+  id: string
+  type: ObservationType
+  content: string
+  confidence: number
+  evidence_log_ids: string[]
+  created_at: string
+  last_seen_at: string
+  expires_at: string
 }
 
 export type LLMProvider = 'openai' | 'claude' | 'gemini'
