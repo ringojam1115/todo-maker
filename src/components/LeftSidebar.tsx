@@ -55,6 +55,30 @@ function daysLeft(deadline: string): number {
   return Math.ceil((d.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 }
 
+function formatDaysLeft(days: number): string {
+  if (days < 0) {
+    const absDays = Math.abs(days);
+    const months = Math.floor(absDays / 30);
+    const remainDays = absDays % 30;
+    if (months > 0 && remainDays > 0) return `+${months}ヶ月${remainDays}日`;
+    if (months > 0) return `+${months}ヶ月`;
+    return `+${absDays}日`;
+  }
+  const months = Math.floor(days / 30);
+  const remainDays = days % 30;
+  if (months > 0 && remainDays > 0) return `${months}ヶ月${remainDays}日`;
+  if (months > 0) return `${months}ヶ月`;
+  return `${days}日`;
+}
+
+function formatMinutes(minutes: number): string {
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  if (h > 0 && m > 0) return `${h}時間${m}分`;
+  if (h > 0) return `${h}時間`;
+  return `${m}分`;
+}
+
 const obsTypeConfig = {
   tendency: { label: "傾向", labelEn: "Tendency", color: "#7c3aed", bg: "#ede9fe" },
   interest: { label: "関心", labelEn: "Interest", color: "#0369a1", bg: "#e0f2fe" },
@@ -165,7 +189,7 @@ export default function LeftSidebar({
                         <p className="truncate text-xs font-semibold text-[var(--text)]">{goal.title}</p>
                         <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-[var(--muted)]">
                           <span>{formatDeadline(goal.deadline, language)} {language === "ja" ? "まで" : ""}</span>
-                          <span>{remaining >= 0 ? `${remaining}d` : `+${Math.abs(remaining)}d`}</span>
+                          <span>{formatDaysLeft(remaining)}</span>
                         </div>
                         {/* Gap summary if set */}
                         {goal.gap_summary && (
