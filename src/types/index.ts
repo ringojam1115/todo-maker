@@ -113,6 +113,7 @@ export interface Reflection {
   what_blocked_me: string
   mood: string
   next_action: string
+  free_memo?: string
   created_at: string
 }
 
