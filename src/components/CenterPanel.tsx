@@ -774,7 +774,7 @@ export default function CenterPanel({
             </div>
 
             {/* Content */}
-            <div className="mx-auto w-full max-w-2xl flex-1 px-10 py-8 flex flex-col gap-6">
+            <div className="mx-auto w-full max-w-4xl flex-1 px-10 py-8 flex flex-col gap-6">
               {/* Task title */}
               <div>
                 <h2 className="text-xl font-bold leading-snug text-[var(--text)]">{task.text}</h2>
@@ -798,7 +798,7 @@ export default function CenterPanel({
                         const h = Number(e.target.value);
                         onTaskMetaChange(goal.id, activeDate, task.id, { actualMinutes: h * 60 + memoMinutes });
                       }}
-                      className="h-8 w-10 rounded border border-[var(--border)] bg-[var(--panel)] px-1.5 text-center text-sm text-[var(--text)] outline-none focus:border-[var(--border-strong)]"
+                      className="h-8 w-14 rounded border border-[var(--border)] bg-[var(--panel)] px-2 text-center text-sm text-[var(--text)] outline-none focus:border-[var(--border-strong)] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                     <span className="text-sm text-[var(--muted)]">:</span>
                     <input
@@ -810,7 +810,7 @@ export default function CenterPanel({
                         const m = Number(e.target.value);
                         onTaskMetaChange(goal.id, activeDate, task.id, { actualMinutes: memoHours * 60 + m });
                       }}
-                      className="h-8 w-10 rounded border border-[var(--border)] bg-[var(--panel)] px-1.5 text-center text-sm text-[var(--text)] outline-none focus:border-[var(--border-strong)]"
+                      className="h-8 w-14 rounded border border-[var(--border)] bg-[var(--panel)] px-2 text-center text-sm text-[var(--text)] outline-none focus:border-[var(--border-strong)] [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
                     />
                   </div>
                 </div>
