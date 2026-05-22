@@ -133,8 +133,28 @@ export default function Home() {
       } catch {}
     }
 
-    // Find past dates that have plans but no feedback
+    // Simple date-level check: if pln_feedbacks has no entry for yesterday,
+    // prompt the user to submit before falling through to the per-goal scan.
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split("T")[0];
+
     const feedbacks = loadFeedbacks();
+    const hasYesterdayFeedback = feedbacks.some((f) => f.date === yesterdayStr);
+
+    if (!hasYesterdayFeedback) {
+      const hasYesterdayPlans = Object.keys(loadedPlans).some((key) => {
+        const idx = key.indexOf("_");
+        return idx !== -1 && key.slice(idx + 1) === yesterdayStr;
+      });
+      if (hasYesterdayPlans) {
+        localStorage.setItem("pln_pending_feedback", JSON.stringify({ date: yesterdayStr }));
+        setPendingFeedbackDate(yesterdayStr);
+        return;
+      }
+    }
+
+    // Find past dates that have plans but no feedback (per-goal scan for dates older than yesterday)
     const missingDates = new Set<string>();
     for (const key of Object.keys(loadedPlans)) {
       const idx = key.indexOf("_");
