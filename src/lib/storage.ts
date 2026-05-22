@@ -1,4 +1,4 @@
-import type { Goal, DailyPlansStore, DailyFeedback, LearningProfile, SkillMemo, Reflection, LearningLog, Observation, WeeklyReviewResult } from "@/types";
+import type { Goal, DailyPlansStore, DailyFeedback, LearningProfile, SkillMemo, Reflection, LearningLog, Observation, WeeklyReviewResult, TodoReaction } from "@/types";
 
 const GOALS_KEY = "pln_goals";
 const PLANS_KEY = "pln_plans";
@@ -160,4 +160,19 @@ export function saveWeeklyReview(review: WeeklyReviewResult): void {
 export function loadLatestWeeklyReview(): WeeklyReviewResult | null {
   const reviews = loadWeeklyReviews();
   return reviews.length > 0 ? reviews[reviews.length - 1] : null;
+}
+
+const TODO_REACTIONS_KEY = "pln_todo_reactions";
+
+export function loadTodoReactions(): TodoReaction[] {
+  if (typeof window === "undefined") return [];
+  try {
+    return JSON.parse(localStorage.getItem(TODO_REACTIONS_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+export function saveTodoReactions(reactions: TodoReaction[]): void {
+  localStorage.setItem(TODO_REACTIONS_KEY, JSON.stringify(reactions));
 }
