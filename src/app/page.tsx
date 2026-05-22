@@ -35,6 +35,7 @@ import GoalEditModal from "@/components/GoalEditModal";
 import GoalDeleteModal from "@/components/GoalDeleteModal";
 import SettingsModal from "@/components/SettingsModal";
 import WeeklyReviewModal from "@/components/WeeklyReviewModal";
+import YesterdayFeedbackModal from "@/components/YesterdayFeedbackModal";
 
 interface Tab {
   date: string;
@@ -84,6 +85,10 @@ export default function Home() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [autoSubmitStatus, setAutoSubmitStatus] = useState<string | null>(null);
 
+  // Yesterday feedback modal
+  const [pendingFeedbackDate, setPendingFeedbackDate] = useState<string | null>(null);
+  const [submittingYesterdayFeedback, setSubmittingYesterdayFeedback] = useState(false);
+
   // Refs for stable access inside scheduled callbacks (avoids stale closures)
   const goalsRef = useRef<Goal[]>([]);
   const plansRef = useRef<DailyPlansStore>({});
@@ -112,6 +117,67 @@ export default function Home() {
     setObservations(loadedObservations);
     setLatestWeeklyReview(loadLatestWeeklyReview());
     setDataLoaded(true);
+
+    // Detect pending yesterday feedback
+    const todayStr = new Date().toISOString().split("T")[0];
+
+    // Reuse an existing pending date stored from a previous session
+    const stored = localStorage.getItem("pln_pending_feedback");
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        if (parsed.date && parsed.date < todayStr) {
+          setPendingFeedbackDate(parsed.date);
+          return;
+        }
+      } catch {}
+    }
+
+    // Find past dates that have plans but no feedback
+    const feedbacks = loadFeedbacks();
+    const missingDates = new Set<string>();
+    for (const key of Object.keys(loadedPlans)) {
+      const idx = key.indexOf("_");
+      if (idx === -1) continue;
+      const date = key.slice(idx + 1);
+      if (date >= todayStr) continue;
+      const goalId = key.slice(0, idx);
+      if (!feedbacks.some((f) => f.goalId === goalId && f.date === date)) {
+        missingDates.add(date);
+      }
+    }
+
+    if (missingDates.size === 0) return;
+
+    const sortedMissing = Array.from(missingDates).sort().reverse();
+    const targetDate = sortedMissing[0]; // most recent missing date
+    const olderDates = sortedMissing.slice(1);
+
+    // Auto-record dates older than targetDate as "no data" to prevent infinite prompts
+    if (olderDates.length > 0) {
+      const noDataFeedbacks = [...feedbacks];
+      for (const oldDate of olderDates) {
+        for (const key of Object.keys(loadedPlans)) {
+          const idx = key.indexOf("_");
+          if (idx === -1) continue;
+          if (key.slice(idx + 1) !== oldDate) continue;
+          const goalId = key.slice(0, idx);
+          if (noDataFeedbacks.some((f) => f.goalId === goalId && f.date === oldDate)) continue;
+          noDataFeedbacks.push({
+            date: oldDate,
+            goalId,
+            taskFeedbacks: [],
+            overallNote: "",
+            energyLevel: "medium",
+            createdAt: new Date().toISOString(),
+          });
+        }
+      }
+      saveFeedbacks(noDataFeedbacks);
+    }
+
+    localStorage.setItem("pln_pending_feedback", JSON.stringify({ date: targetDate }));
+    setPendingFeedbackDate(targetDate);
   }, []);
 
   const selectedGoal = goals.find((g) => g.id === selectedGoalId) ?? null;
@@ -195,165 +261,35 @@ export default function Home() {
     language: settings.language,
   }), [settings]);
 
-  // Automatically submit feedback for a past date if none was submitted.
-  // Uses refs so it can be called from setTimeout/setInterval without stale closures.
-  const autoSubmitFeedback = useCallback(async (date: string) => {
-    const currentGoals = goalsRef.current;
-    const currentPlans = plansRef.current;
-    if (currentGoals.length === 0) return;
-
-    const existingFeedbacks = loadFeedbacks();
-    const profiles = loadProfiles();
-
-    const goalsNeedingFeedback = currentGoals.filter((goal) => {
-      const plan = currentPlans[`${goal.id}_${date}`];
-      return plan != null && !existingFeedbacks.some((f) => f.goalId === goal.id && f.date === date);
-    });
-
-    if (goalsNeedingFeedback.length === 0) return;
-
-    const nextFeedbacks = [...existingFeedbacks];
-    const updatedStore: DailyPlansStore = {};
-
-    for (const goal of goalsNeedingFeedback) {
-      const plan = currentPlans[`${goal.id}_${date}`];
-      const taskFeedbacks: TaskFeedback[] = plan.tasks.map((task) => ({
-        taskId: task.id,
-        taskText: task.text,
-        completed: task.completed,
-        completionRate: task.completed ? 100 : 0,
-        actualMinutes: task.actualMinutes ?? task.estimatedMinutes ?? 30,
-        estimatedMinutes: task.estimatedMinutes || 30,
-        difficulty: task.difficulty ?? "just_right",
-        materialName: goal.materials?.[0]?.name,
-        reflection: task.reflection,
-        artifact: task.artifact,
-      }));
-
-      const deadlineDate = new Date(goal.deadline + "T00:00:00");
-      const currentD = new Date(date + "T00:00:00");
-      const remainingDays = Math.max(
-        0,
-        Math.ceil((deadlineDate.getTime() - currentD.getTime()) / (1000 * 60 * 60 * 24))
-      );
-
-      const currentPlanItems: DailyPlan[] = [];
-      const d = new Date(date + "T00:00:00");
-      d.setDate(d.getDate() + 1);
-      while (d <= deadlineDate) {
-        const dateStr = d.toISOString().split("T")[0];
-        const future = currentPlans[`${goal.id}_${dateStr}`];
-        if (future) currentPlanItems.push(future);
-        d.setDate(d.getDate() + 1);
-      }
-
-      const currentProfile: LearningProfile = profiles[goal.id] || {
-        goalId: goal.id,
-        averageCompletionRate: 0,
-        averageTimeRatio: 1,
-        materialAffinities: [],
-        difficultyTrend: "stable",
-        totalStudyMinutes: 0,
-        updatedAt: new Date().toISOString(),
-      };
-
-      const otherGoals = currentGoals
-        .filter((g) => g.id !== goal.id)
-        .map((g) => ({
-          title: g.title,
-          dailyMinutes: g.dailyMinutes ?? 60,
-          remainingDays: Math.max(
-            0,
-            Math.ceil(
-              (new Date(g.deadline + "T00:00:00").getTime() - currentD.getTime()) / (1000 * 60 * 60 * 24)
-            )
-          ),
-        }));
-
-      try {
-        const res = await fetch("/api/submit-feedback", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            goal,
-            date,
-            taskFeedbacks,
-            overallNote: "",
-            energyLevel: "medium",
-            remainingDays,
-            currentPlans: currentPlanItems,
-            profile: currentProfile,
-            otherGoals,
-            llm: {
-              provider: settingsRef.current.provider,
-              apiKey: settingsRef.current.apiKeys[settingsRef.current.provider],
-              language: settingsRef.current.language,
-            },
-          }),
-        });
-
-        if (!res.ok) continue;
-        const data = await res.json();
-        profiles[goal.id] = data.updatedProfile;
-
-        for (const dayPlan of data.updatedPlans as Array<{ date: string; focus: string; tasks: Task[] }>) {
-          const key = `${goal.id}_${dayPlan.date}`;
-          updatedStore[key] = {
-            date: dayPlan.date,
-            focus: dayPlan.focus,
-            tasks: dayPlan.tasks.map((task) => ({ ...task, completed: false })),
-            note: currentPlans[key]?.note ?? "",
-          };
-        }
-
-        nextFeedbacks.push({
-          date,
-          goalId: goal.id,
-          taskFeedbacks,
-          overallNote: "",
-          energyLevel: "medium",
-          createdAt: new Date().toISOString(),
-        });
-      } catch {
-        // continue to next goal if one fails
-      }
-    }
-
-    saveFeedbacks(nextFeedbacks);
-    saveProfiles(profiles);
-
-    if (Object.keys(updatedStore).length > 0) {
-      setPlans((prev) => {
-        const next = { ...prev, ...updatedStore };
-        savePlans(next);
-        return next;
-      });
-      const lang = settingsRef.current.language;
-      setAutoSubmitStatus(
-        lang === "ja"
-          ? `${date} の振り返りを自動送信し、TODOを更新しました`
-          : `Auto-submitted feedback for ${date} and updated TODOs`
-      );
-      setTimeout(() => setAutoSubmitStatus(null), 5000);
-    }
-  }, []); // stable — only reads refs, not state
-
-  // On mount (after data loads) and at each midnight, auto-submit missing feedback for the previous day.
+  // At each midnight, check if yesterday's feedback is missing and set the pending flag.
   useEffect(() => {
     if (!dataLoaded) return;
 
     const checkYesterday = () => {
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      autoSubmitFeedback(yesterday.toISOString().split("T")[0]);
-    };
+      const yesterdayStr = yesterday.toISOString().split("T")[0];
 
-    checkYesterday();
+      const currentGoals = goalsRef.current;
+      const currentPlans = plansRef.current;
+      if (currentGoals.length === 0) return;
+
+      const existingFeedbacks = loadFeedbacks();
+      const hasPending = currentGoals.some((goal) => {
+        const plan = currentPlans[`${goal.id}_${yesterdayStr}`];
+        return plan != null && !existingFeedbacks.some((f) => f.goalId === goal.id && f.date === yesterdayStr);
+      });
+
+      if (hasPending) {
+        localStorage.setItem("pln_pending_feedback", JSON.stringify({ date: yesterdayStr }));
+        setPendingFeedbackDate(yesterdayStr);
+      }
+    };
 
     const now = new Date();
     const nextMidnight = new Date(now);
     nextMidnight.setDate(nextMidnight.getDate() + 1);
-    nextMidnight.setHours(0, 0, 5, 0); // 5 seconds past midnight
+    nextMidnight.setHours(0, 0, 5, 0);
     const msUntilMidnight = nextMidnight.getTime() - now.getTime();
 
     let dailyInterval: ReturnType<typeof setInterval> | null = null;
@@ -366,7 +302,169 @@ export default function Home() {
       clearTimeout(midnightTimeout);
       if (dailyInterval) clearInterval(dailyInterval);
     };
-  }, [dataLoaded, autoSubmitFeedback]);
+  }, [dataLoaded]);
+
+  const handleYesterdayFeedbackSkip = useCallback(() => {
+    localStorage.removeItem("pln_pending_feedback");
+    setPendingFeedbackDate(null);
+  }, []);
+
+  const handleYesterdayFeedbackSubmit = useCallback(
+    async ({
+      completionRate,
+      energyLevel,
+      memo,
+    }: {
+      completionRate: number;
+      energyLevel: "low" | "medium" | "high";
+      memo: string;
+    }) => {
+      if (!pendingFeedbackDate) return;
+      setSubmittingYesterdayFeedback(true);
+
+      const date = pendingFeedbackDate;
+      const currentGoals = goalsRef.current;
+      const currentPlans = plansRef.current;
+      const existingFeedbacks = loadFeedbacks();
+      const profiles = loadProfiles();
+
+      const goalsNeedingFeedback = currentGoals.filter((goal) => {
+        const plan = currentPlans[`${goal.id}_${date}`];
+        return plan != null && !existingFeedbacks.some((f) => f.goalId === goal.id && f.date === date);
+      });
+
+      const nextFeedbacks = [...existingFeedbacks];
+      const updatedStore: DailyPlansStore = {};
+
+      for (const goal of goalsNeedingFeedback) {
+        const plan = currentPlans[`${goal.id}_${date}`];
+        const taskFeedbacks: TaskFeedback[] = plan.tasks.map((task) => ({
+          taskId: task.id,
+          taskText: task.text,
+          completed: completionRate >= 100,
+          completionRate,
+          actualMinutes: task.actualMinutes ?? task.estimatedMinutes ?? 30,
+          estimatedMinutes: task.estimatedMinutes || 30,
+          difficulty: task.difficulty ?? "just_right",
+          materialName: goal.materials?.[0]?.name,
+          reflection: task.reflection,
+          artifact: task.artifact,
+        }));
+
+        const deadlineDate = new Date(goal.deadline + "T00:00:00");
+        const currentD = new Date(date + "T00:00:00");
+        const remainingDays = Math.max(
+          0,
+          Math.ceil((deadlineDate.getTime() - currentD.getTime()) / (1000 * 60 * 60 * 24))
+        );
+
+        const currentPlanItems: DailyPlan[] = [];
+        const d = new Date(date + "T00:00:00");
+        d.setDate(d.getDate() + 1);
+        while (d <= deadlineDate) {
+          const dateStr = d.toISOString().split("T")[0];
+          const future = currentPlans[`${goal.id}_${dateStr}`];
+          if (future) currentPlanItems.push(future);
+          d.setDate(d.getDate() + 1);
+        }
+
+        const currentProfile: LearningProfile = profiles[goal.id] || {
+          goalId: goal.id,
+          averageCompletionRate: 0,
+          averageTimeRatio: 1,
+          materialAffinities: [],
+          difficultyTrend: "stable",
+          totalStudyMinutes: 0,
+          updatedAt: new Date().toISOString(),
+        };
+
+        const otherGoals = currentGoals
+          .filter((g) => g.id !== goal.id)
+          .map((g) => ({
+            title: g.title,
+            dailyMinutes: g.dailyMinutes ?? 60,
+            remainingDays: Math.max(
+              0,
+              Math.ceil(
+                (new Date(g.deadline + "T00:00:00").getTime() - currentD.getTime()) / (1000 * 60 * 60 * 24)
+              )
+            ),
+          }));
+
+        try {
+          const res = await fetch("/api/submit-feedback", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              goal,
+              date,
+              taskFeedbacks,
+              overallNote: memo,
+              energyLevel,
+              remainingDays,
+              currentPlans: currentPlanItems,
+              profile: currentProfile,
+              otherGoals,
+              llm: {
+                provider: settingsRef.current.provider,
+                apiKey: settingsRef.current.apiKeys[settingsRef.current.provider],
+                language: settingsRef.current.language,
+              },
+            }),
+          });
+
+          if (!res.ok) continue;
+          const data = await res.json();
+          profiles[goal.id] = data.updatedProfile;
+
+          for (const dayPlan of data.updatedPlans as Array<{ date: string; focus: string; tasks: Task[] }>) {
+            const key = `${goal.id}_${dayPlan.date}`;
+            updatedStore[key] = {
+              date: dayPlan.date,
+              focus: dayPlan.focus,
+              tasks: dayPlan.tasks.map((task) => ({ ...task, completed: false })),
+              note: currentPlans[key]?.note ?? "",
+            };
+          }
+
+          nextFeedbacks.push({
+            date,
+            goalId: goal.id,
+            taskFeedbacks,
+            overallNote: memo,
+            energyLevel,
+            createdAt: new Date().toISOString(),
+          });
+        } catch {
+          // continue to next goal if one fails
+        }
+      }
+
+      saveFeedbacks(nextFeedbacks);
+      saveProfiles(profiles);
+
+      if (Object.keys(updatedStore).length > 0) {
+        setPlans((prev) => {
+          const next = { ...prev, ...updatedStore };
+          savePlans(next);
+          return next;
+        });
+      }
+
+      localStorage.removeItem("pln_pending_feedback");
+      setPendingFeedbackDate(null);
+      setSubmittingYesterdayFeedback(false);
+
+      const lang = settingsRef.current.language;
+      setAutoSubmitStatus(
+        lang === "ja"
+          ? "昨日のフィードバックをもとにtodoを更新しました"
+          : "Updated TODOs based on yesterday's feedback"
+      );
+      setTimeout(() => setAutoSubmitStatus(null), 5000);
+    },
+    [pendingFeedbackDate]
+  );
 
   const fetchTipsForGoal = useCallback((goal: Goal, allPlans: DailyPlansStore) => {
     const goalPlans = Object.entries(allPlans)
@@ -1033,6 +1131,18 @@ export default function Home() {
           feedbacks={deletingGoalFeedbacks}
           onClose={() => setDeletingGoalId(null)}
           onDelete={handleConfirmDelete}
+        />
+      )}
+
+      {pendingFeedbackDate && (
+        <YesterdayFeedbackModal
+          date={pendingFeedbackDate}
+          goals={goals}
+          plans={plans}
+          language={settings.language}
+          submitting={submittingYesterdayFeedback}
+          onSkip={handleYesterdayFeedbackSkip}
+          onSubmit={handleYesterdayFeedbackSubmit}
         />
       )}
 
