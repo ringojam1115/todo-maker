@@ -59,6 +59,9 @@ export default function WeeklyReviewModal({
   const [review, setReview] = useState<WeeklyReviewResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [goalChanged, setGoalChanged] = useState<'same' | 'slightly' | 'significantly'>('same');
+  const [motivationScore, setMotivationScore] = useState(5);
+  const [changeReason, setChangeReason] = useState('');
 
   const today = new Date();
   const weekStart = new Date(today);
@@ -117,6 +120,10 @@ export default function WeeklyReviewModal({
         weekStart: weekStartStr,
         weekEnd: weekEndStr,
         createdAt: new Date().toISOString(),
+        goalChanged,
+        motivationScore,
+        changeReason: changeReason.trim() || undefined,
+        timestamp: new Date().toISOString(),
       };
       setReview(result);
       onSave(result);
@@ -167,21 +174,100 @@ export default function WeeklyReviewModal({
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
           {!review && !loading && (
-            <div className="flex flex-col items-center gap-4 py-8">
-              <div className="rounded-lg p-4 text-center" style={{ background: "#f9f9f7", border: "1px solid #e0e0da" }}>
-                <p className="text-sm text-[var(--muted)] leading-relaxed max-w-sm">
+            <div className="flex flex-col gap-5 py-2">
+              {/* Q1: Goal change */}
+              <div className="flex flex-col gap-2">
+                <p className="text-sm font-medium" style={{ color: "#1a1a1a" }}>
+                  {language === "ja" ? "今の目標はまだ同じですか？" : "Is your goal still the same?"}
+                </p>
+                <div className="flex gap-2">
+                  {(
+                    [
+                      { value: "same",          labelJa: "変わっていない",   labelEn: "Unchanged" },
+                      { value: "slightly",      labelJa: "少し変わった",     labelEn: "Slightly changed" },
+                      { value: "significantly", labelJa: "大きく変わった",   labelEn: "Significantly changed" },
+                    ] as const
+                  ).map(({ value, labelJa, labelEn }) => (
+                    <button
+                      key={value}
+                      onClick={() => setGoalChanged(value)}
+                      className="flex-1 px-3 py-2 rounded-lg text-xs font-medium transition-colors"
+                      style={
+                        goalChanged === value
+                          ? { background: "#eef7e6", border: "1px solid #5c9e2e", color: "#3d6e1a" }
+                          : { background: "#f9f9f7", border: "1px solid #e0e0da", color: "#555" }
+                      }
+                    >
+                      {language === "ja" ? labelJa : labelEn}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Q2: Motivation slider */}
+              <div className="flex flex-col gap-2">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium" style={{ color: "#1a1a1a" }}>
+                    {language === "ja" ? "今週のモチベーションはどうでしたか？" : "How was your motivation this week?"}
+                  </p>
+                  <span className="text-sm font-semibold tabular-nums" style={{ color: "#5c9e2e" }}>
+                    {motivationScore} / 10
+                  </span>
+                </div>
+                <input
+                  type="range"
+                  min={1}
+                  max={10}
+                  value={motivationScore}
+                  onChange={(e) => setMotivationScore(Number(e.target.value))}
+                  className="w-full"
+                  style={{ accentColor: "#5c9e2e" }}
+                />
+                <div className="flex justify-between text-[10px]" style={{ color: "#aaa" }}>
+                  <span>{language === "ja" ? "低い" : "Low"}</span>
+                  <span>{language === "ja" ? "高い" : "High"}</span>
+                </div>
+              </div>
+
+              {/* Q3: Change reason (conditional) */}
+              {goalChanged !== "same" && (
+                <div className="flex flex-col gap-2">
+                  <p className="text-sm font-medium" style={{ color: "#1a1a1a" }}>
+                    {language === "ja"
+                      ? "目標や気持ちが変わった場合、理由を教えてください"
+                      : "If your goal or feelings changed, what was the reason?"}
+                    <span className="ml-1 text-xs font-normal" style={{ color: "#aaa" }}>
+                      {language === "ja" ? "（任意）" : "(optional)"}
+                    </span>
+                  </p>
+                  <textarea
+                    value={changeReason}
+                    onChange={(e) => setChangeReason(e.target.value)}
+                    placeholder={language === "ja" ? "例：優先度が変わった、新しい興味が生まれたなど" : "e.g. priorities shifted, new interest emerged..."}
+                    rows={2}
+                    className="w-full rounded-lg px-3 py-2 text-sm resize-none outline-none"
+                    style={{ background: "#f9f9f7", border: "1px solid #e0e0da", color: "#1a1a1a" }}
+                  />
+                </div>
+              )}
+
+              <div className="rounded-lg p-3" style={{ background: "#f9f9f7", border: "1px solid #e0e0da" }}>
+                <p className="text-xs text-[var(--muted)] leading-relaxed">
                   {language === "ja"
                     ? "今週の振り返りをAIが整理します。断定ではなく観測・傾向として提示されます。目標に対する認識の変化も含めます。"
                     : "AI will summarize your week as observations and tendencies, including shifts in how you perceive your goals."}
                 </p>
               </div>
-              <button
-                onClick={generateReview}
-                className="rounded-full px-6 py-2.5 text-sm font-medium text-white"
-                style={{ background: "#5c9e2e" }}
-              >
-                {language === "ja" ? "週次レビューを生成" : "Generate Weekly Review"}
-              </button>
+
+              <div className="flex justify-center">
+                <button
+                  onClick={generateReview}
+                  className="rounded-full px-6 py-2.5 text-sm font-medium text-white"
+                  style={{ background: "#5c9e2e" }}
+                >
+                  {language === "ja" ? "週次レビューを生成" : "Generate Weekly Review"}
+                </button>
+              </div>
             </div>
           )}
 

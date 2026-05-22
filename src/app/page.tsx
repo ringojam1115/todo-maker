@@ -20,6 +20,7 @@ import {
   loadObservations,
   saveObservations,
   loadReflections,
+  loadLearningLogs,
   loadLatestWeeklyReview,
   saveWeeklyReview,
 } from "@/lib/storage";
@@ -501,6 +502,19 @@ export default function Home() {
           ),
         }));
 
+        const recentFeedbacks = loadFeedbacks()
+          .sort((a, b) => b.date.localeCompare(a.date))
+          .slice(0, 7)
+          .map((f) => ({ date: f.date, energyLevel: f.energyLevel, overallNote: f.overallNote }));
+
+        const acquiredSkills = loadSkillMemos()
+          .map((s) => ({ goalTitle: s.goalTitle, skills: s.skills }));
+
+        const recentLearningLogs = loadLearningLogs()
+          .sort((a, b) => b.date.localeCompare(a.date))
+          .slice(0, 5)
+          .map((l) => ({ date: l.date, content: l.content }));
+
         const res = await fetch("/api/generate-todos", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -517,6 +531,9 @@ export default function Home() {
             idealState: newGoal.ideal_state,
             gapSummary: newGoal.gap_summary,
             observations: observations.length > 0 ? observations : undefined,
+            recentFeedbacks: recentFeedbacks.length > 0 ? recentFeedbacks : undefined,
+            acquiredSkills: acquiredSkills.length > 0 ? acquiredSkills : undefined,
+            recentLearningLogs: recentLearningLogs.length > 0 ? recentLearningLogs : undefined,
             weeklyReview: latestWeeklyReview
               ? {
                   next_week_policy: latestWeeklyReview.next_week_policy,

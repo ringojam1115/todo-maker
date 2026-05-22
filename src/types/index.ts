@@ -159,6 +159,23 @@ export interface WeeklyReviewResult {
   weekStart: string
   weekEnd: string
   createdAt: string
+  goalChanged?: 'same' | 'slightly' | 'significantly'
+  motivationScore?: number
+  changeReason?: string
+  timestamp?: string
+}
+
+export type TodoReactionType = 'accepted' | 'modified' | 'rejected'
+
+export interface TodoReaction {
+  todoId: string
+  goalId: string
+  date: string
+  reaction: TodoReactionType
+  originalContent: string
+  modifiedContent?: string
+  rejectionReason?: string
+  timestamp: string
 }
 
 export type LLMProvider = 'openai' | 'claude' | 'gemini'

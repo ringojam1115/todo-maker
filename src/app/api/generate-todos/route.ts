@@ -37,6 +37,22 @@ interface ObservationInput {
   confidence: number;
 }
 
+interface FeedbackInput {
+  date: string;
+  energyLevel: 'low' | 'medium' | 'high';
+  overallNote: string;
+}
+
+interface SkillMemoInput {
+  goalTitle: string;
+  skills: string;
+}
+
+interface LearningLogInput {
+  date: string;
+  content: string;
+}
+
 export async function POST(request: Request) {
   try {
     const {
@@ -55,6 +71,9 @@ export async function POST(request: Request) {
       observations,
       learningProfile,
       weeklyReview,
+      recentFeedbacks,
+      acquiredSkills,
+      recentLearningLogs,
       llm,
     }: {
       goalTitle: string;
@@ -72,6 +91,9 @@ export async function POST(request: Request) {
       observations?: ObservationInput[];
       learningProfile?: LearningProfile;
       weeklyReview?: Pick<WeeklyReviewResult, 'next_week_policy' | 'reduce_todos' | 'increase_todos' | 'goal_perception' | 'weekStart'>;
+      recentFeedbacks?: FeedbackInput[];
+      acquiredSkills?: SkillMemoInput[];
+      recentLearningLogs?: LearningLogInput[];
       llm?: LLMRequestSettings;
     } = await request.json();
 
@@ -168,6 +190,35 @@ ${observations.map((o) => `- [${o.type}] ${o.content} (確信度: ${Math.round(o
 `
         : "";
 
+    const energyTrendSection =
+      recentFeedbacks && recentFeedbacks.length > 0
+        ? `
+## 最近のエネルギー傾向（直近${recentFeedbacks.length}日）
+${recentFeedbacks
+  .map((f) => {
+    const label = f.energyLevel === "high" ? "高" : f.energyLevel === "medium" ? "中" : "低";
+    return `- ${f.date}: エネルギー=${label}${f.overallNote ? `、メモ: ${f.overallNote}` : ""}`;
+  })
+  .join("\n")}
+`
+        : "";
+
+    const acquiredSkillsSection =
+      acquiredSkills && acquiredSkills.length > 0
+        ? `
+## 習得済みスキル（これと重複するタスクは生成しないこと）
+${acquiredSkills.map((s) => `- [${s.goalTitle}] ${s.skills}`).join("\n")}
+`
+        : "";
+
+    const learningLogsSection =
+      recentLearningLogs && recentLearningLogs.length > 0
+        ? `
+## 最近の学習メモ（直近${recentLearningLogs.length}件）
+${recentLearningLogs.map((l) => `- [${l.date}] ${l.content}`).join("\n")}
+`
+        : "";
+
     // averageTimeRatio: if > 1.1, scale up estimatedMinutes
     const timeRatio = learningProfile?.averageTimeRatio ?? 1;
     const timeRatioNote =
@@ -243,6 +294,9 @@ ${profileSection}
 ${weeklyReviewSection}
 ${reflectionsSection}
 ${observationsSection}
+${energyTrendSection}
+${acquiredSkillsSection}
+${learningLogsSection}
 ${calendarSection}
 ${otherGoalsSection}
 

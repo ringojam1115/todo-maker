@@ -15,9 +15,10 @@ import type {
   Reflection,
   Task,
   TaskFeedback,
+  TodoReaction,
 } from "@/types";
 import { UI_TEXT } from "@/lib/settings";
-import { loadFeedbacks, loadProfiles, saveFeedbacks, saveProfiles, loadReflections, saveReflections, loadLearningLogs, saveLearningLogs } from "@/lib/storage";
+import { loadFeedbacks, loadProfiles, saveFeedbacks, saveProfiles, loadReflections, saveReflections, loadLearningLogs, saveLearningLogs, loadTodoReactions, saveTodoReactions } from "@/lib/storage";
 import { v4 as uuidv4 } from "uuid";
 
 
@@ -345,12 +346,63 @@ export default function CenterPanel({
   // Which task memo page is open (key = `${goalId}_${date}_${taskId}`)
   const [openMemoKey, setOpenMemoKey] = useState<string | null>(null);
 
+  // Todo reactions — keyed by todoId
+  const [reactions, setReactions] = useState<Record<string, TodoReaction>>(() => {
+    if (typeof window === "undefined") return {};
+    return Object.fromEntries(loadTodoReactions().map((r) => [r.todoId, r]));
+  });
+  const [activeEditKey, setActiveEditKey] = useState<string | null>(null);
+  const [activeEditType, setActiveEditType] = useState<'modified' | 'rejected' | null>(null);
+  const [draftContent, setDraftContent] = useState("");
+
   function getTaskMemo(key: string) {
     return taskMemos[key] ?? { freeText: "", mood: "" };
   }
 
   function updateTaskMemo(key: string, field: "freeText" | "mood", value: string) {
     setTaskMemos((prev) => ({ ...prev, [key]: { ...getTaskMemo(key), [field]: value } }));
+  }
+
+  function handleReactionClick(task: Task, goal: Goal, type: 'accepted' | 'modified' | 'rejected') {
+    const todoId = task.id;
+    if (type === 'accepted') {
+      const newReaction: TodoReaction = {
+        todoId, goalId: goal.id, date: activeDate,
+        reaction: 'accepted', originalContent: task.text,
+        timestamp: new Date().toISOString(),
+      };
+      const updated = { ...reactions, [todoId]: newReaction };
+      setReactions(updated);
+      saveTodoReactions(Object.values(updated));
+      if (activeEditKey === todoId) { setActiveEditKey(null); setActiveEditType(null); setDraftContent(""); }
+      return;
+    }
+    if (activeEditKey === todoId && activeEditType === type) {
+      setActiveEditKey(null); setActiveEditType(null); setDraftContent("");
+      return;
+    }
+    setActiveEditKey(todoId);
+    setActiveEditType(type);
+    setDraftContent(type === 'modified' ? (reactions[todoId]?.modifiedContent ?? task.text) : (reactions[todoId]?.rejectionReason ?? ""));
+  }
+
+  function confirmReaction(task: Task, goal: Goal) {
+    if (!activeEditType) return;
+    const newReaction: TodoReaction = {
+      todoId: task.id, goalId: goal.id, date: activeDate,
+      reaction: activeEditType, originalContent: task.text,
+      ...(activeEditType === 'modified' ? { modifiedContent: draftContent.trim() || task.text } : {}),
+      ...(activeEditType === 'rejected' && draftContent.trim() ? { rejectionReason: draftContent.trim() } : {}),
+      timestamp: new Date().toISOString(),
+    };
+    const updated = { ...reactions, [task.id]: newReaction };
+    setReactions(updated);
+    saveTodoReactions(Object.values(updated));
+    setActiveEditKey(null); setActiveEditType(null); setDraftContent("");
+  }
+
+  function cancelEdit() {
+    setActiveEditKey(null); setActiveEditType(null); setDraftContent("");
   }
 
   async function submitFeedback() {
@@ -685,6 +737,98 @@ export default function CenterPanel({
                                 </p>
                               )}
                             </div>
+                          )}
+
+                          {/* Reaction bar */}
+                          <div className="mt-2.5 flex flex-wrap gap-1.5">
+                            {(
+                              [
+                                { type: 'accepted' as const, icon: '✅', labelJa: 'そのまま採用', labelEn: 'Accept' },
+                                { type: 'modified' as const, icon: '✏️', labelJa: '修正して採用', labelEn: 'Modify' },
+                                { type: 'rejected' as const, icon: '❌', labelJa: '却下', labelEn: 'Reject' },
+                              ]
+                            ).map(({ type, icon, labelJa, labelEn }) => {
+                              const saved = reactions[task.id];
+                              const isActive = saved?.reaction === type;
+                              const isPendingOpen = activeEditKey === task.id && activeEditType === type;
+                              const highlight = isActive || isPendingOpen;
+                              const styles = {
+                                accepted: { bg: '#eef7e6', border: '#5c9e2e', text: '#3d6e1a' },
+                                modified: { bg: '#eff6ff', border: '#3b82f6', text: '#1d4ed8' },
+                                rejected: { bg: '#fff5f5', border: '#ef4444', text: '#b91c1c' },
+                              }[type];
+                              return (
+                                <button
+                                  key={type}
+                                  onClick={() => handleReactionClick(task, goal, type)}
+                                  className="text-[10px] px-2 py-1 rounded-md border transition-colors"
+                                  style={highlight
+                                    ? { background: styles.bg, borderColor: styles.border, color: styles.text }
+                                    : { background: 'var(--panel)', borderColor: 'var(--border)', color: 'var(--muted-2)' }
+                                  }
+                                >
+                                  {icon} {language === "ja" ? labelJa : labelEn}
+                                </button>
+                              );
+                            })}
+                          </div>
+
+                          {/* Modified content editor */}
+                          {activeEditKey === task.id && activeEditType === 'modified' && (
+                            <div className="mt-2 flex flex-col gap-1.5">
+                              <input
+                                value={draftContent}
+                                onChange={(e) => setDraftContent(e.target.value)}
+                                placeholder={task.text}
+                                className="w-full rounded-lg border px-3 py-1.5 text-sm text-[var(--text)] outline-none"
+                                style={{ borderColor: '#93c5fd', background: '#f0f7ff' }}
+                                onKeyDown={(e) => e.key === 'Enter' && confirmReaction(task, goal)}
+                                autoFocus
+                              />
+                              <div className="flex gap-1.5">
+                                <button onClick={() => confirmReaction(task, goal)} className="text-[11px] px-3 py-1 rounded-md border" style={{ background: '#eff6ff', borderColor: '#3b82f6', color: '#1d4ed8' }}>
+                                  {language === "ja" ? "確定" : "Confirm"}
+                                </button>
+                                <button onClick={cancelEdit} className="text-[11px] px-3 py-1 rounded-md border" style={{ background: 'var(--panel)', borderColor: 'var(--border)', color: 'var(--muted)' }}>
+                                  {language === "ja" ? "キャンセル" : "Cancel"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Rejection reason editor */}
+                          {activeEditKey === task.id && activeEditType === 'rejected' && (
+                            <div className="mt-2 flex flex-col gap-1.5">
+                              <input
+                                value={draftContent}
+                                onChange={(e) => setDraftContent(e.target.value)}
+                                placeholder={language === "ja" ? "却下の理由（任意）" : "Reason for rejection (optional)"}
+                                className="w-full rounded-lg border px-3 py-1.5 text-sm text-[var(--text)] outline-none"
+                                style={{ borderColor: '#fca5a5', background: '#fff8f8' }}
+                                onKeyDown={(e) => e.key === 'Enter' && confirmReaction(task, goal)}
+                                autoFocus
+                              />
+                              <div className="flex gap-1.5">
+                                <button onClick={() => confirmReaction(task, goal)} className="text-[11px] px-3 py-1 rounded-md border" style={{ background: '#fff5f5', borderColor: '#ef4444', color: '#b91c1c' }}>
+                                  {language === "ja" ? "確定" : "Confirm"}
+                                </button>
+                                <button onClick={cancelEdit} className="text-[11px] px-3 py-1 rounded-md border" style={{ background: 'var(--panel)', borderColor: 'var(--border)', color: 'var(--muted)' }}>
+                                  {language === "ja" ? "キャンセル" : "Cancel"}
+                                </button>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Saved reaction summary (when not editing) */}
+                          {activeEditKey !== task.id && reactions[task.id]?.reaction === 'modified' && reactions[task.id].modifiedContent && (
+                            <p className="mt-1 text-[11px] rounded px-2 py-1" style={{ background: '#eff6ff', color: '#1d4ed8' }}>
+                              {language === "ja" ? "修正後: " : "Modified: "}{reactions[task.id].modifiedContent}
+                            </p>
+                          )}
+                          {activeEditKey !== task.id && reactions[task.id]?.reaction === 'rejected' && reactions[task.id].rejectionReason && (
+                            <p className="mt-1 text-[11px] rounded px-2 py-1" style={{ background: '#fff5f5', color: '#b91c1c' }}>
+                              {language === "ja" ? "却下理由: " : "Rejected: "}{reactions[task.id].rejectionReason}
+                            </p>
                           )}
 
                         </div>
